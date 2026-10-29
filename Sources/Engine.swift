@@ -48,7 +48,7 @@ final class Engine {
     private(set) var shaderData = [Float](repeating: 0, count: AudioAnalyzer.bandCount * 2 + AudioAnalyzer.waveformCount
                                                          + Engine.orbitStarCount * 4 + Engine.rippleCount * 4)
     static let orbitStarCount = 28
-    static let rippleCount = 8
+    static let rippleCount = 12
 
     private let start = CACurrentMediaTime()
     private var last = CACurrentMediaTime()
@@ -64,8 +64,8 @@ final class Engine {
     private var lastRipple: CFTimeInterval = -10
     private var onsetAverage: Float = 0.5
     private var rippleHeld = false
-    /// Minimum gap between waves, so they stay big one-off events rather than following every beat.
-    static let rippleCooldown: CFTimeInterval = 1.6
+    /// Minimum gap between waves.
+    static let rippleCooldown: CFTimeInterval = 0.2
 
     private func updateRipples(dt: Float, now: CFTimeInterval) {
         let a = analyzer

@@ -191,7 +191,7 @@ float3 starsMode(float2 p, constant Uniforms& u, constant float* s) {
 
 // Buffer 1 layout: [0, 64) bands, [64, 128) peak caps, [128, 384) waveform,
 // [384, 496) 28 orbiting stars as (radius in event-horizon radii, angle, size, hue),
-// [496, 528) 8 spacetime ripples as (age, strength, hold time, pitch 0 = bass ... 1 = treble).
+// [496, 544) 12 spacetime ripples as (age, strength, hold time, pitch 0 = bass ... 1 = treble).
 float peakAt(constant float* s, float x) { return spec(s + 64, x); }
 
 float waveAt(constant float* s, float x) {
@@ -303,20 +303,20 @@ float3 blackHoleMode(float2 p, constant Uniforms& u, constant float* s) {
     float2 p0 = p - (size == 2 ? float2(0.5 * aspect, 0.0) : float2(0.0));
     float rs = rsBase * (1.0 + 0.075 * u.bass + 0.05 * u.kick);
 
-    // Spacetime ripples: each standout hit (any frequency, at most one every ~1.6 s) sends a single big
+    // Spacetime ripples: each standout hit (any frequency, at most one every 0.2 s) sends a single big
     // wave out of the horizon. It has no colour of its own; you only see it by how it bends everything.
     // Held hits make it wider and stronger; bass makes it broader than highs.
     constant float4* ripples = (constant float4*)(s + 496);
     float r0 = length(p0);
     float disp = 0.0;
-    for (int k = 0; k < 8; k++) {
+    for (int k = 0; k < 12; k++) {
         float4 rp = ripples[k];   // age, amp, hold, pitch
         if (rp.y <= 0.0) continue;
         float held = min(rp.z, 1.0);
         float width = mix(0.12, 0.05, rp.w) * (1.0 + 0.8 * held);
         float x = (r0 - (rs * 1.05 + rp.x * 0.55)) / width;
         if (abs(x) > 3.0) continue;
-        float a = rp.y * (1.0 + 0.8 * held) * exp(-rp.x * 0.6) * smoothstep(0.0, 0.15, rp.x);
+        float a = rp.y * (1.0 + 0.8 * held) * exp(-rp.x * 0.9) * smoothstep(0.0, 0.15, rp.x);
         disp += a * x * exp(-x * x) * width * 0.3;   // one push-pull bulge
     }
     p = p0 - p0 / max(r0, 1e-4) * disp;
