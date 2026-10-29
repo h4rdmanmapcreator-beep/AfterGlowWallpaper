@@ -91,7 +91,7 @@ final class Engine {
         }
         return (0..<orbitStarCount).map { _ in
             let a = rand(), b = rand(), c = rand()
-            return (1.9 + 2.7 * a, c * 2 * .pi, 0.0025 + 0.002 * b, a * 0.7)
+            return (1.3 + 1.2 * a, c * 2 * .pi, 0.0025 + 0.002 * b, a * 0.7)
         }
     }()
 
@@ -101,7 +101,7 @@ final class Engine {
         out.reserveCapacity(Self.orbitStarCount * 4)
         for star in Self.orbitStarParams {
             // Kepler: inner stars go round faster.
-            let angle = Float((Double(star.phase) + flow * 0.45 * pow(Double(star.radius) / 1.9, -1.5))
+            let angle = Float((Double(star.phase) + flow * 0.45 * pow(Double(star.radius) / 1.3, -1.5))
                 .truncatingRemainder(dividingBy: 2 * .pi))
             out += [star.radius, angle, star.size, star.hue]
         }

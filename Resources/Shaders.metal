@@ -263,7 +263,7 @@ float3 scopeMode(float2 p, constant Uniforms& u, constant float* s) {
     return col * (0.8 + 0.5 * u.level);
 }
 
-// ---------- 5: Black Hole — streaky lensed rings, edge-on disk, orbiting stars, spacetime ripples ----------
+// ---------- 5: Black Hole — streaky lensed rings, orbiting stars, spacetime ripples ----------
 
 // Value noise along rings: each ring of cells turns rigidly at its own Kepler speed, so the streaks
 // shear past each other like orbiting gas without ever aliasing, however long it runs.
@@ -293,7 +293,7 @@ float gauss(float x, float c, float w) { float d = (x - c) / w; return exp(-d * 
 
 float3 blackHoleMode(float2 p0, constant Uniforms& u, constant float* s) {
     float px = 1.0 / u.resolution.y;
-    float rs = 0.2 + 0.018 * u.bass + 0.012 * u.kick;
+    float rs = 0.4 + 0.03 * u.bass + 0.02 * u.kick;
 
     // Spacetime ripples. Every punchy onset (any frequency) emits waves from the horizon for as long
     // as it is held: a short hit sends a single ring, a sustained one a long train. Low hits make long,
@@ -325,8 +325,7 @@ float3 blackHoleMode(float2 p0, constant Uniforms& u, constant float* s) {
     float th01 = th / TAU + 0.5;
     float hole = smoothstep(1.0, 1.0 - 1.5 * px / rs, rn);
 
-    float3 bg = float3(0.0);   // behind the horizon
-    float3 fg = float3(0.0);   // in front of it
+    float3 col = float3(0.0);
 
     // Background stars, bent around the hole like a gravitational lens.
     float E = rs * 1.9;
@@ -336,7 +335,7 @@ float3 blackHoleMode(float2 p0, constant Uniforms& u, constant float* s) {
     float2 sh = hash22(sid);
     float sd = length(fract(sq) - 0.5 - (hash22(sid + 4.1) - 0.5) * 0.6);
     float star = smoothstep(0.07, 0.0, sd) * step(0.8, sh.x) * smoothstep(rs * 1.1, rs * 1.8, r);
-    bg += palette(sh.y + u.hue, u.theme) * star * (0.3 + 0.4 * u.treble) * (0.6 + 0.4 * sin(u.time * 2.0 + sh.y * 30.0));
+    col += palette(sh.y + u.hue, u.theme) * star * (0.3 + 0.4 * u.treble) * (0.6 + 0.4 * sin(u.time * 2.0 + sh.y * 30.0));
 
     // The music bends the rings: the spectrum is mirrored around the circle and pushes them outwards.
     float sv = spec(s, abs(fract(th01 + u.flow * 0.01) * 2.0 - 1.0)) * u.activity;
@@ -344,36 +343,29 @@ float3 blackHoleMode(float2 p0, constant Uniforms& u, constant float* s) {
     float energy = 0.75 + 0.8 * u.level + 0.9 * u.kick;
 
     // Lensed image of the disk: streaky rings hugging the horizon, brightest above and below it.
-    float sA = ringStreaks(th01, rw, 28.0, 55.0, 0.12, 0.0, u);
-    float sB = ringStreaks(th01, rw, 56.0, 120.0, 0.16, 3.3, u);
+    float sA = ringStreaks(th01, rw, 40.0, 80.0, 0.12, 0.0, u);
+    float sB = ringStreaks(th01, rw, 80.0, 170.0, 0.16, 3.3, u);
     float tex = 0.08 + 1.8 * pow(sA, 3.0) + 1.3 * pow(sB, 4.0);
     float profile = gauss(rw, 1.07, 0.035) * (1.2 + 1.2 * u.treble + u.kick)
                   + gauss(rw, 1.3, 0.14) * (0.9 + 0.8 * u.bass)
                   + gauss(rw, 1.72, 0.07) * (0.35 + 0.6 * u.mid);
     float heat = exp(-max(rw - 1.0, 0.0) * 2.5);
     float lit = (0.55 + 0.45 * abs(sin(th))) * (0.7 - 0.3 * cos(th));   // lensing above/below, Doppler on one side
-    bg += palette(u.hue + 0.25 * (1.0 - heat) + 0.08 * sA, u.theme) * profile * tex * lit * energy * (0.6 + 0.6 * heat);
+    col += palette(u.hue + 0.25 * (1.0 - heat) + 0.08 * sA, u.theme) * profile * tex * lit * energy * (0.6 + 0.6 * heat);
 
     // Outer broken arcs.
     float arcs = smoothstep(0.45, 0.8, ringStreaks(th01, rn, 6.0, 4.0, 0.05, 9.1, u));
-    bg += palette(u.hue + 0.15, u.theme) * gauss(rw, 2.45, 0.05) * arcs * (0.5 + pow(sB, 2.0)) * (0.25 + 0.5 * u.mid) * energy;
+    col += palette(u.hue + 0.15, u.theme) * gauss(rw, 2.45, 0.05) * arcs * (0.5 + pow(sB, 2.0)) * (0.25 + 0.5 * u.mid) * energy;
 
     // Embers riding the rings, sparkling with the treble.
-    float ember = pow(ringStreaks(th01, rn, 160.0, 90.0, 0.2, 7.7, u), 14.0) * gauss(rn, 1.4, 0.6);
-    bg += palette(u.hue + 0.05, u.theme) * ember * (1.5 + 2.0 * u.treble);
+    float ember = pow(ringStreaks(th01, rn, 220.0, 130.0, 0.2, 7.7, u), 14.0) * gauss(rn, 1.4, 0.6);
+    col += palette(u.hue + 0.05, u.theme) * ember * (1.5 + 2.0 * u.treble);
 
     // Soft glow around the horizon.
-    bg += palette(u.hue + 0.1, u.theme) * exp(-max(rn - 1.0, 0.0) * 3.0) * 0.08 * energy;
-
-    // The disk itself, edge-on: a thin streaky band through the centre that passes in front of the hole.
-    float ax = abs(P.x);
-    float thick = 0.035 + 0.025 * ax;
-    float band = gauss(P.y, 0.0, thick) * exp(-ax * 0.35);
-    float dtex = 0.35 + 1.3 * pow(vnoise(float2(P.x * 5.0 + u.flow * 0.9, P.y / thick * 2.0)), 2.0);
-    fg += palette(u.hue + 0.05 + ax * 0.05, u.theme) * band * dtex * (0.8 + 0.8 * u.level + 0.8 * u.kick);
+    col += palette(u.hue + 0.1, u.theme) * exp(-max(rn - 1.0, 0.0) * 3.0) * 0.08 * energy;
 
     // Ripple crests glow as they travel.
-    bg += palette(u.hue + 0.2, u.theme) * crest * 0.3;
+    col += palette(u.hue + 0.2, u.theme) * crest * 0.3;
 
     // Stars circling the hole in the screen plane, each with a short trail. Their positions are worked
     // out once per frame on the CPU (Engine.orbitStars); only the nearest one is shaded.
@@ -394,12 +386,12 @@ float3 blackHoleMode(float2 p0, constant Uniforms& u, constant float* s) {
         }
         if (best < 0.03) {
             float core = smoothstep(bestSize, bestSize * 0.2, best) * (1.0 - 0.85 * bestTrail);
-            bg += palette(u.hue + bestHue, u.theme) * (core + exp(-best * 260.0) * 0.2 * (1.0 - bestTrail))
+            col += palette(u.hue + bestHue, u.theme) * (core + exp(-best * 260.0) * 0.2 * (1.0 - bestTrail))
                 * (0.7 + 0.6 * u.treble);
         }
     }
 
-    return bg * (1.0 - hole) + fg;
+    return col * (1.0 - hole);
 }
 
 // ---------- 6: Gradients — soft colour fields drifting and breathing with the music ----------
