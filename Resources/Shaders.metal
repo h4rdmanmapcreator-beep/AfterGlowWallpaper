@@ -303,7 +303,7 @@ float3 blackHoleMode(float2 p, constant Uniforms& u, constant float* s) {
     float2 p0 = p - (size == 2 ? float2(0.5 * aspect, 0.0) : float2(0.0));
     float rs = rsBase * (1.0 + 0.075 * u.bass + 0.05 * u.kick);
 
-    // Spacetime ripples: each standout hit (any frequency, at most one every 0.2 s) sends a single big
+    // Spacetime ripples: each standout hit (any frequency) sends a single big
     // wave out of the horizon. It has no colour of its own; you only see it by how it bends everything.
     // Held hits make it wider and stronger; bass makes it broader than highs.
     constant float4* ripples = (constant float4*)(s + 496);
@@ -336,7 +336,6 @@ float3 blackHoleMode(float2 p, constant Uniforms& u, constant float* s) {
     float E = rs * 1.9;
     float2 src = p * (1.0 - E * E / max(r * r, 1e-5));
     // Distant stars in three depth layers, all circling the hole (farther = slower), bent by its lens.
-    // When they move fast enough they smear into a short trail along their path.
     float lensFade = smoothstep(rs * 1.1, rs * 1.8, r);
     for (int k = 0; k < 3; k++) {
         float fk = float(k);
@@ -349,16 +348,9 @@ float3 blackHoleMode(float2 p, constant Uniforms& u, constant float* s) {
         float2 h = hash22(id + fk * 31.1);
         if (h.x < 0.55) continue;
         float2 c = id + 0.5 + (hash22(id + 4.1 + fk) - 0.5) * 0.4;   // star centre, kept clear of the cell edge
-        float2 cs = c / scale;                                         // its position around the hole
-        float rad = max(length(cs), 1e-4);
-        float trail = min(spin * u.flowSpeed * rad * 0.3 * scale, 0.35);   // cells travelled in ~0.3 s
-        trail = max(trail - 0.04, 0.0);
-        float2 dir = float2(-cs.y, cs.x) / rad;                       // backwards along its path
-        float2 pa = q - c;
-        float t = clamp(dot(pa, dir) / max(trail, 1e-4), 0.0, 1.0) * step(1e-4, trail);
-        float d = length(pa - dir * trail * t);
+        float d = length(q - c);
         float size = max(mix(0.05, 0.11, h.y) / (1.0 + fk * 0.3), 1.3 * scale * px);
-        float b = smoothstep(size, size * 0.25, d) * (1.0 - 0.7 * t) * (1.0 - 0.25 * fk);
+        float b = smoothstep(size, size * 0.25, d) * (1.0 - 0.25 * fk);
         float twinkle = 0.6 + 0.4 * sin(u.time * (1.5 + h.y * 3.0) + h.x * 40.0);
         col += palette(h.y * 0.5 + u.hue + fk * 0.1, u.theme) * b * twinkle * lensFade * (0.5 + 0.4 * u.treble);
     }
@@ -402,9 +394,9 @@ float3 blackHoleMode(float2 p, constant Uniforms& u, constant float* s) {
             float dth = th - st.y;
             dth -= TAU * floor((dth + M_PI_F) / TAU);
             float along = dth * R;   // arc length ahead (+) or behind (-) the star, in horizon radii
-            // Trail = how far the star travels in ~0.3 s; slow stars get none.
+            // A short trail (distance travelled in ~0.07 s), only for the fastest stars.
             float omega = u.flowSpeed * 0.45 * pow(st.x / 1.3, -1.5);
-            float trailLen = max(omega * R * 0.3 - 0.03, 0.0);
+            float trailLen = max(omega * R * 0.07 - 0.04, 0.0);
             float behind = clamp(-along / max(trailLen, 1e-4), 0.0, 1.0);
             float off = along > 0.0 ? along : max(-along - trailLen, 0.0);
             float d = length(float2(rn - R, off)) * rs;

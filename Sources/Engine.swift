@@ -61,13 +61,10 @@ final class Engine {
     /// which makes that wave wider and stronger; `pitch` (0 bass ... 1 treble) sets how broad it is.
     private struct Ripple { var age: Float; var amp: Float; var hold: Float; var pitch: Float }
     private var ripples: [Ripple] = []
-    private var lastRipple: CFTimeInterval = -10
     private var onsetAverage: Float = 0.5
     private var rippleHeld = false
-    /// Minimum gap between waves.
-    static let rippleCooldown: CFTimeInterval = 0.2
 
-    private func updateRipples(dt: Float, now: CFTimeInterval) {
+    private func updateRipples(dt: Float) {
         let a = analyzer
         for i in ripples.indices { ripples[i].age += dt }
         if a.onsetCount != lastOnsetCount {
@@ -75,9 +72,8 @@ final class Engine {
             // Only hits that stand out from the recent ones count.
             let standout = a.onsetStrength > max(0.7, onsetAverage * 1.25)
             onsetAverage += (a.onsetStrength - onsetAverage) * 0.15
-            rippleHeld = standout && now - lastRipple > Self.rippleCooldown
+            rippleHeld = standout
             if rippleHeld {
-                lastRipple = now
                 ripples.insert(Ripple(age: 0, amp: a.onsetStrength, hold: 0, pitch: a.onsetPitch), at: 0)
             }
         } else if rippleHeld && a.isSustaining && !ripples.isEmpty {
@@ -154,7 +150,7 @@ final class Engine {
         flowSpeed += (targetSpeed - flowSpeed) * (1 - exp(-dt / 0.25))
         flow += Double(dt * flowSpeed)
 
-        updateRipples(dt: dt, now: now)
+        updateRipples(dt: dt)
         shaderData = a.bands + a.peaks + a.waveform + orbitStars() + rippleData()
 
         hue += Double(dt * (1.0 / 240 + 0.015 * a.level * a.activity))

@@ -53,7 +53,7 @@ final class AudioAnalyzer {
     private var rawBands = [Float](repeating: 0, count: AudioAnalyzer.bandCount)
     private var slowBands = [Float](repeating: 0, count: AudioAnalyzer.bandCount)
     private var fluxAverage: Float = 0
-    private var lastOnset: CFTimeInterval = 0
+    private var wasAboveThreshold = false
     private var sustainRange = 0..<1
     private var sustainLevel: Float = 0
     private var peakDb: Float = -60
@@ -213,8 +213,12 @@ final class AudioAnalyzer {
 
         let punch = playing ? min(max((flux - fluxAverage) * 6, 0), 1) : 0
         kick = max(kick * exp(-dt * 7), punch)
-        if playing && flux > fluxAverage * 1.6 + 0.04 && flux > 0.08 && now - lastOnset > 0.15 {
-            lastOnset = now
+        // No time-based cooldown: an onset fires when the flux rises past the threshold and re-arms as soon
+        // as it falls back below, so one hit counts once but back-to-back hits each count.
+        let aboveThreshold = playing && flux > fluxAverage * 1.6 + 0.04 && flux > 0.08
+        let risingEdge = aboveThreshold && !wasAboveThreshold
+        wasAboveThreshold = aboveThreshold
+        if risingEdge {
             onsetCount += 1
             onsetStrength = min(max((flux - fluxAverage) * 4, 0.3), 1.5)
             onsetPitch = centroid
