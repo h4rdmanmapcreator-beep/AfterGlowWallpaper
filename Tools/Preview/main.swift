@@ -1,0 +1,70 @@
+// Offscreen preview: renders every style (ambient + with fake music) to PNGs.
+//   ./Tools/preview.sh [output-dir]
+import AppKit
+import Metal
+
+let outDir = URL(fileURLWithPath: CommandLine.arguments.count > 1 ? CommandLine.arguments[1] : ".")
+let device = MTLCreateSystemDefaultDevice()!
+let source = try! String(contentsOfFile: "Resources/Shaders.metal", encoding: .utf8)
+let library = try! device.makeLibrary(source: source, options: nil)
+let desc = MTLRenderPipelineDescriptor()
+desc.vertexFunction = library.makeFunction(name: "vmain")
+desc.fragmentFunction = library.makeFunction(name: "fmain")
+desc.colorAttachments[0].pixelFormat = .rgba8Unorm
+let pipeline = try! device.makeRenderPipelineState(descriptor: desc)
+let queue = device.makeCommandQueue()!
+
+let w = 1280, h = 720
+let texDesc = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .rgba8Unorm, width: w, height: h, mipmapped: false)
+texDesc.usage = [.renderTarget, .shaderRead]
+texDesc.storageMode = .shared
+let texture = device.makeTexture(descriptor: texDesc)!
+
+func render(mode: Int, music: Bool, name: String) {
+    var u = Uniforms()
+    u.time = 37
+    u.flow = 21
+    u.resolution = SIMD2(Float(w), Float(h))
+    u.drift = SIMD2(0.01, -0.005)
+    u.hue = 0.15
+    u.brightness = 0.8 * (music ? 1 : 0.6)
+    u.mode = Int32(mode)
+    if music {
+        u.bass = 0.7; u.mid = 0.5; u.treble = 0.35; u.level = 0.75; u.beat = 0.6; u.activity = 1
+    }
+    var spectrum = (0..<64).map { i -> Float in
+        guard music else { return 0 }
+        let x = Float(i) / 63
+        return max(0, min(1, 0.9 - x * 0.6 + 0.25 * sin(x * 23)))
+    }
+
+    let pass = MTLRenderPassDescriptor()
+    pass.colorAttachments[0].texture = texture
+    pass.colorAttachments[0].loadAction = .clear
+    pass.colorAttachments[0].storeAction = .store
+    pass.colorAttachments[0].clearColor = MTLClearColor(red: 0, green: 0, blue: 0, alpha: 1)
+    let cmd = queue.makeCommandBuffer()!
+    let enc = cmd.makeRenderCommandEncoder(descriptor: pass)!
+    enc.setRenderPipelineState(pipeline)
+    enc.setFragmentBytes(&u, length: MemoryLayout<Uniforms>.stride, index: 0)
+    enc.setFragmentBytes(&spectrum, length: 64 * 4, index: 1)
+    enc.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 3)
+    enc.endEncoding()
+    cmd.commit()
+    cmd.waitUntilCompleted()
+
+    var bytes = [UInt8](repeating: 0, count: w * h * 4)
+    texture.getBytes(&bytes, bytesPerRow: w * 4, from: MTLRegionMake2D(0, 0, w, h), mipmapLevel: 0)
+    var black = 0
+    for i in stride(from: 0, to: bytes.count, by: 4) where bytes[i] == 0 && bytes[i + 1] == 0 && bytes[i + 2] == 0 { black += 1 }
+    let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: w, pixelsHigh: h, bitsPerSample: 8, samplesPerPixel: 4,
+                               hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: w * 4, bitsPerPixel: 32)!
+    memcpy(rep.bitmapData!, bytes, bytes.count)
+    try! rep.representation(using: .png, properties: [:])!.write(to: outDir.appendingPathComponent("\(name).png"))
+    print("\(name): \(Int(Double(black) / Double(w * h) * 100))% pixels fully off")
+}
+
+for style in Style.allCases {
+    render(mode: style.rawValue, music: false, name: "\(style.rawValue)-\(style.title)-ambient")
+    render(mode: style.rawValue, music: true, name: "\(style.rawValue)-\(style.title)-music")
+}
