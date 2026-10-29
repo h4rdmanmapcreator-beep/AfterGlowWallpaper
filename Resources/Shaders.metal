@@ -313,12 +313,13 @@ float3 blackHoleMode(float2 p, constant Uniforms& u, constant float* s) {
         float4 rp = ripples[k];   // age, amp, hold, pitch
         if (rp.y <= 0.0) continue;
         float held = min(rp.z, 1.0);
-        float width = mix(0.12, 0.05, rp.w) * (1.0 + 0.8 * held);
+        float width = mix(0.15, 0.07, rp.w) * (1.0 + 0.8 * held);
         float x = (r0 - (rs * 1.05 + rp.x * 0.55)) / width;
         if (abs(x) > 3.0) continue;
-        float a = rp.y * (1.0 + 0.8 * held) * exp(-rp.x * 0.9) * smoothstep(0.0, 0.15, rp.x);
-        disp += a * x * exp(-x * x) * width * 0.3;   // one push-pull bulge
+        float a = rp.y * (1.0 + 0.8 * held) * exp(-rp.x * 0.7) * smoothstep(0.0, 0.15, rp.x);
+        disp += a * x * exp(-x * x) * width * 0.7;   // one push-pull bulge
     }
+    disp = clamp(disp, -0.12, 0.12);   // even a huge held hit can't tear the picture apart
     p = p0 - p0 / max(r0, 1e-4) * disp;
     float r = length(p);
 
