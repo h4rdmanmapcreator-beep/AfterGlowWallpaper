@@ -44,8 +44,7 @@ final class AudioAnalyzer {
     /// Increments on every hard hit in the deep bass (kicks, 808s) or the high treble (snare cracks, claps, crashes).
     /// Mid-range attacks such as vocals, chords and plucks never count.
     private(set) var hardHitCount = 0
-    /// How hard the latest hit landed (0.3 and up, uncapped so hard hits can still be compared), and where: 0 = bass, 1 = treble.
-    private(set) var hardHitStrength: Float = 0
+    /// Where the latest hit landed: 0 = bass, 1 = treble.
     private(set) var hardHitPitch: Float = 0
     /// True while the latest hit is still being held at (close to) its peak.
     private(set) var isSustaining = false
@@ -70,8 +69,6 @@ final class AudioAnalyzer {
     ]
     private let hitMinLoudness: Float = 0.5
     private var hitActive = false
-    private var hitFired = false
-    private var hitPeak: (strength: Float, detector: Int) = (0, 0)
     private var sustainRange = 0..<1
     private var sustainLevel: Float = 0
     private var peakDb: Float = -60
@@ -231,42 +228,24 @@ final class AudioAnalyzer {
         let punch = playing ? min(max((flux - fluxAverage) * 6, 0), 1) : 0
         kick = max(kick * exp(-dt * 7), punch)
 
-        // Hard hits: the bass or treble range jumps well above its own recent average while it is loud.
-        // A hit fires once, at its peak, so its strength does not depend on the frame rate. There is no
-        // time-based cooldown: it re-arms as soon as both ranges fall back, so back-to-back hits each
-        // count, while a kick and a snare landing together count as one.
-        var strongest: (strength: Float, detector: Int)?
-        var holding = false
+        // Hard hits: the bass or treble range jumps past a fixed threshold above its own recent average
+        // while it is loud. Every hit past the threshold counts and there is no time-based cooldown: a hit
+        // fires when it crosses and re-arms once both ranges have dropped well below (so a hit wobbling
+        // around the threshold counts once). A kick and a snare landing together count as one.
+        var crossed: Int?
         for i in hitDetectors.indices {
             let d = hitDetectors[i]
             let rise = mean(d.bands, rises)
             let threshold = d.average * d.contrast + d.minRise
             let loud = playing && mean(d.bands, rawBands) > hitMinLoudness
-            // A hit starts above the threshold and lasts until it drops well below it, so a hit that
-            // wobbles around the threshold still counts once.
-            if loud && rise > threshold * (hitActive ? 0.7 : 1) {
-                holding = true
-                let strength = max((rise - d.average) * 4, 0.3)
-                if strength > (strongest?.strength ?? 0) { strongest = (strength, i) }
-            }
+            if loud && rise > threshold * (hitActive ? 0.7 : 1) && crossed == nil { crossed = i }
             hitDetectors[i].average += (rise - d.average) * (1 - exp(-dt / 0.5))
         }
-        var hit: (strength: Float, detector: Int)?
-        if holding, let now = strongest {
-            if !hitActive { hitActive = true; hitFired = false; hitPeak = now }
-            if !hitFired && now.strength < hitPeak.strength {
-                hit = hitPeak
-                hitFired = true
-            }
-            if now.strength > hitPeak.strength { hitPeak = now }
-        } else if hitActive {
-            if !hitFired { hit = hitPeak }
-            hitActive = false
-        }
+        let hit = hitActive ? nil : crossed
+        hitActive = crossed != nil
         if let hit {
-            let d = hitDetectors[hit.detector]
+            let d = hitDetectors[hit]
             hardHitCount += 1
-            hardHitStrength = hit.strength
             hardHitPitch = d.pitch
             sustainRange = d.bands
             sustainLevel = mean(d.bands, rawBands)

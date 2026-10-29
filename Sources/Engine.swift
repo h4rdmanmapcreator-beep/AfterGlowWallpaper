@@ -57,11 +57,11 @@ final class Engine {
     private var flowSpeed: Float = 0.22
     private var lastHitCount = 0
 
-    /// One big spacetime wave per standout hard bass or treble hit, newest first. `hold` grows while the hit is sustained,
-    /// which makes that wave wider and stronger; `pitch` (0 bass ... 1 treble) sets how broad it is.
-    private struct Ripple { var age: Float; var amp: Float; var hold: Float; var pitch: Float }
+    /// One big spacetime wave per hard bass or treble hit, newest first, all the same strength. `hold` grows
+    /// while the hit is sustained, which makes that wave wider and stronger; `pitch` (0 bass, 1 treble) sets how broad it is.
+    private struct Ripple { var age: Float; var hold: Float; var pitch: Float }
+    private static let rippleAmp: Float = 1.2
     private var ripples: [Ripple] = []
-    private var hitAverage: Float = 0.5
     private var rippleHeld = false
 
     private func updateRipples(dt: Float) {
@@ -69,13 +69,8 @@ final class Engine {
         for i in ripples.indices { ripples[i].age += dt }
         if a.hardHitCount != lastHitCount {
             lastHitCount = a.hardHitCount
-            // Only hits that stand out from the recent ones count.
-            let standout = a.hardHitStrength > max(0.7, hitAverage * 1.25)
-            hitAverage += (a.hardHitStrength - hitAverage) * 0.15
-            rippleHeld = standout
-            if rippleHeld {
-                ripples.insert(Ripple(age: 0, amp: min(a.hardHitStrength, 1.5), hold: 0, pitch: a.hardHitPitch), at: 0)
-            }
+            ripples.insert(Ripple(age: 0, hold: 0, pitch: a.hardHitPitch), at: 0)
+            rippleHeld = true
         } else if rippleHeld && a.isSustaining && !ripples.isEmpty {
             ripples[0].hold = min(ripples[0].hold + dt, 1.0)
         } else {
@@ -91,7 +86,7 @@ final class Engine {
         for i in 0..<Self.rippleCount {
             if i < ripples.count {
                 let r = ripples[i]
-                out += [r.age, r.amp * analyzer.activity, r.hold, r.pitch]
+                out += [r.age, Self.rippleAmp * analyzer.activity, r.hold, r.pitch]
             } else {
                 out += [99, 0, 0, 0]
             }
