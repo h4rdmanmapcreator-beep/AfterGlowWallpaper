@@ -1,7 +1,7 @@
 import Foundation
 
 enum Style: Int, CaseIterable {
-    case halo, lines, stars, bars, scope, ripples, orbits
+    case halo, lines, stars, bars, scope, blackHole, silk, grid, galaxy
 
     var title: String {
         switch self {
@@ -10,19 +10,28 @@ enum Style: Int, CaseIterable {
         case .stars: return "Starfield"
         case .bars: return "Equalizer"
         case .scope: return "Oscilloscope"
-        case .ripples: return "Ripples"
-        case .orbits: return "Orbits"
+        case .blackHole: return "Black Hole"
+        case .silk: return "Silk"
+        case .grid: return "Neon Grid"
+        case .galaxy: return "Galaxy"
         }
     }
 }
 
 enum Theme: Int, CaseIterable {
-    case spectrum, ocean, ember, violet
+    // Raw values are what the shader and saved settings use; declaration order is the menu order.
+    case spectrum = 0, sunset = 4, cyberpunk = 5, synthwave = 6, nature = 7, aurora = 8, ocean = 1, ice = 9, ember = 2, violet = 3
 
     var title: String {
         switch self {
         case .spectrum: return "Spectrum (cycling)"
+        case .sunset: return "Sunset"
+        case .cyberpunk: return "Cyberpunk"
+        case .synthwave: return "Synthwave"
+        case .nature: return "Nature"
+        case .aurora: return "Aurora"
         case .ocean: return "Ocean"
+        case .ice: return "Ice"
         case .ember: return "Ember"
         case .violet: return "Violet"
         }

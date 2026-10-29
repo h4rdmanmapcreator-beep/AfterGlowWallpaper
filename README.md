@@ -6,15 +6,18 @@ A live wallpaper for macOS that reacts to whatever your Mac is playing, and keep
 
 - **Reacts to system audio** using Core Audio process taps (macOS 14.2+). No BlackHole or other virtual driver needed, and it works at any volume.
 - **Ambient mode**: when the music stops it fades into a slower, dimmer version of the same style instead of freezing.
-- **Seven styles**:
+- **Nine styles**:
   - Halo: spectrum ring with beat shockwaves
   - Contours: stacked lines pushed up by the music
   - Starfield: multicolored stars on pure black
   - Equalizer: mirrored bars with falling peak caps
   - Oscilloscope: the live waveform as a thin glowing trace
-  - Ripples: raindrops on black water, plus a ring on every beat
-  - Orbits: planets on tilted orbits, one per frequency range
-- **Four color themes**: Spectrum (cycling), Ocean, Ember, Violet.
+  - Black Hole: a lensed accretion disk swirling around a pure-black event horizon
+  - Silk: soft glowing folds of light, like satin in the dark
+  - Neon Grid: retro-futuristic floor, slit sun and a skyline driven by the spectrum
+  - Galaxy: a turning spiral whose arms and core light up with the music
+- **Ten color themes**: Spectrum (cycling), Sunset, Cyberpunk, Synthwave, Nature, Aurora, Ocean, Ice, Ember, Violet.
+- Frame rate up to 144 fps.
 - Lives in the menu bar; sits at desktop level under your icons and windows; clicks pass straight through.
 - Works on every connected display.
 
@@ -44,7 +47,8 @@ Tip: set your regular macOS wallpaper to plain black so the screen stays dark be
 Render every style (ambient and with simulated music) to PNGs without touching the desktop:
 
 ```bash
-./Tools/preview.sh    # writes build/preview/*.png
+./Tools/preview.sh              # writes build/preview/*.png
+THEME=5 ./Tools/preview.sh      # same, in a specific color theme (ids in Sources/Settings.swift)
 ```
 
 ## Project layout

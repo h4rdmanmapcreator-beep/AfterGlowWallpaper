@@ -126,7 +126,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(submenu("Colors", Theme.allCases.map { ($0.title, $0 == settings.theme, $0.rawValue) }, #selector(pickTheme)))
         menu.addItem(submenu("Brightness", [40, 60, 80, 100].map { ("\($0)%", abs(settings.brightness * 100 - Float($0)) < 1, $0) }, #selector(pickBrightness)))
         menu.addItem(submenu("Sensitivity", [("Low", 70), ("Normal", 100), ("High", 140)].map { ($0.0, abs(settings.sensitivity * 100 - Float($0.1)) < 1, $0.1) }, #selector(pickSensitivity)))
-        menu.addItem(submenu("Frame Rate", [30, 60, 120].map { ("\($0) fps", settings.fps == $0, $0) }, #selector(pickFPS)))
+        menu.addItem(submenu("Frame Rate", [30, 60, 120, 144].map { ("\($0) fps", settings.fps == $0, $0) }, #selector(pickFPS)))
 
         let cycle = NSMenuItem(title: "Rotate Styles Every 8 Min (OLED care)", action: #selector(toggleCycle), keyEquivalent: "")
         cycle.target = self

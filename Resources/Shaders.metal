@@ -57,20 +57,34 @@ float fbm(float2 p) {
     return v;
 }
 
-// Cosine palettes (iq). Each theme keeps colours saturated so the panel never goes white.
+float3 rgb(uint h) {
+    return float3(float((h >> 16) & 255u), float((h >> 8) & 255u), float(h & 255u)) / 255.0;
+}
+
+// Smooth looping gradient through four colours.
+float3 stops4(float t, float3 c0, float3 c1, float3 c2, float3 c3) {
+    t = fract(t) * 4.0;
+    int i = int(t);
+    float f = smoothstep(0.0, 1.0, fract(t));
+    float3 a = i == 0 ? c0 : (i == 1 ? c1 : (i == 2 ? c2 : c3));
+    float3 b = i == 0 ? c1 : (i == 1 ? c2 : (i == 2 ? c3 : c0));
+    return mix(a, b, f);
+}
+
+// Theme ids match `Theme` raw values in Settings.swift. Colours stay saturated so the panel never goes white.
 float3 palette(float t, int theme) {
-    float3 a, b, c, d;
     switch (theme) {
-        case 1: // ocean
-            a = float3(0.05, 0.35, 0.55); b = float3(0.05, 0.30, 0.40); c = float3(1.0); d = float3(0.0, 0.10, 0.20); break;
-        case 2: // ember
-            a = float3(0.60, 0.25, 0.06); b = float3(0.40, 0.22, 0.06); c = float3(1.0); d = float3(0.0, 0.08, 0.15); break;
-        case 3: // violet
-            a = float3(0.45, 0.18, 0.62); b = float3(0.35, 0.18, 0.35); c = float3(1.0); d = float3(0.10, 0.0, 0.25); break;
-        default: // spectrum
-            a = float3(0.5); b = float3(0.5); c = float3(1.0); d = float3(0.0, 0.33, 0.67); break;
+        case 1: return stops4(t, rgb(0x0a2a6b), rgb(0x0f6fb0), rgb(0x18c0d0), rgb(0x0a3a8a)); // ocean
+        case 2: return stops4(t, rgb(0xff3b0a), rgb(0xff8a1e), rgb(0xc21d3a), rgb(0xff5a14)); // ember
+        case 3: return stops4(t, rgb(0x6b1fd1), rgb(0xb03cff), rgb(0x3a1aa8), rgb(0xe05cff)); // violet
+        case 4: return stops4(t, rgb(0xff5a1f), rgb(0xe8202a), rgb(0x5a1fb5), rgb(0xff8a2a)); // sunset
+        case 5: return stops4(t, rgb(0xff2bd6), rgb(0x7a2bff), rgb(0x00e5ff), rgb(0xf8f000)); // cyberpunk
+        case 6: return stops4(t, rgb(0xff3cac), rgb(0x784ba0), rgb(0x2b86c5), rgb(0xff6ec7)); // synthwave
+        case 7: return stops4(t, rgb(0x1f8a3a), rgb(0x7cd13a), rgb(0x0f5c4a), rgb(0xc8e04a)); // nature
+        case 8: return stops4(t, rgb(0x19e68c), rgb(0x12b5c9), rgb(0x7b3dff), rgb(0x2bff9a)); // aurora
+        case 9: return stops4(t, rgb(0x3fa9ff), rgb(0x8fd8ff), rgb(0x2a5cff), rgb(0x6ef0ff)); // ice
+        default: return 0.5 + 0.5 * cos(TAU * (t + float3(0.0, 0.33, 0.67)));                // spectrum
     }
-    return a + b * cos(TAU * (c * t + d));
 }
 
 float spec(constant float* s, float x) {
@@ -245,75 +259,154 @@ float3 scopeMode(float2 p, constant Uniforms& u, constant float* s) {
     return col * (0.8 + 0.5 * u.level);
 }
 
-// ---------- 5: Ripples — raindrops on black water, faster and wider with the music ----------
+// ---------- 5: Black Hole — lensed accretion disk around a pure-black event horizon ----------
 
-float3 ripplesMode(float2 p, constant Uniforms& u, constant float* s) {
+float3 blackHoleMode(float2 p, constant Uniforms& u, constant float* s) {
+    float px = 1.0 / u.resolution.y;
+    float rs = 0.11 + 0.01 * u.bass;
+    float r = length(p);
+
+    // Background stars, bent around the hole like a gravitational lens.
+    float E = rs * 1.9;
+    float2 src = p * (1.0 - E * E / max(r * r, 1e-5));
+    float2 sq = src * 38.0;
+    float2 sid = floor(sq);
+    float2 sh = hash22(sid);
+    float sd = length(fract(sq) - 0.5 - (hash22(sid + 4.1) - 0.5) * 0.6);
+    float star = smoothstep(0.06, 0.0, sd) * step(0.82, sh.x) * smoothstep(rs * 1.3, E * 1.3, r);
+    float3 col = palette(sh.y + u.hue, u.theme) * star * (0.35 + 0.4 * u.treble) * (0.6 + 0.4 * sin(u.time * 2.0 + sh.y * 30.0));
+
+    // Accretion disk seen nearly edge-on; q is the disk plane.
+    float rot = 0.12 * sin(u.time * 0.05);
+    float cr = cos(rot), sr = sin(rot);
+    float2 pr = float2(cr * p.x + sr * p.y, -sr * p.x + cr * p.y);
+    float2 dq = float2(pr.x, pr.y / 0.28);
+    float dr = length(dq);
+    float rin = rs * 1.6, rout = rs * (3.6 + 1.0 * u.level);
+    float band = smoothstep(rin, rin * 1.25, dr) * smoothstep(rout, rin * 1.6, dr);
+    // Inner gas orbits faster (Kepler), which winds the turbulence into streaks.
+    float ang = -u.flow * 0.35 / pow(max(dr / rs, 1.0), 1.5);
+    float ca = cos(ang), sa = sin(ang);
+    float turb = fbm(float2(ca * dq.x - sa * dq.y, sa * dq.x + ca * dq.y) / rs * 1.6 + 3.0);
+    float streaks = 0.3 + 0.7 * pow(turb, 1.5 - 0.6 * u.bass);
+    float doppler = 0.5 + 0.5 * (-dq.x / max(dr, 1e-4));   // the side spinning towards us is brighter
+    float heat = smoothstep(rout, rin, dr);
+    float sv = spec(s, clamp((dr - rin) / (rout - rin), 0.0, 1.0)) * u.activity;
+    float3 disk = palette(u.hue + heat * 0.35, u.theme) * (0.3 + 1.1 * heat * heat)
+                * band * streaks * doppler * (0.9 + 0.8 * u.level + 0.6 * sv + 0.4 * u.beat);
+
+    // The far side of the disk, lensed into an arch over and under the hole.
+    float la = -u.flow * 0.5;
+    float2 lp = float2(cos(la) * p.x - sin(la) * p.y, sin(la) * p.x + cos(la) * p.y);
+    float lband = smoothstep(rs * 1.05, rs * 1.2, r) * smoothstep(rs * 2.3, rs * 1.35, r);
+    float lturb = 0.35 + 0.65 * fbm(lp / rs * 2.2);
+    float lweight = 0.45 + 0.55 * abs(p.y) / max(r, 1e-4);
+    float3 lensed = palette(u.hue + 0.3, u.theme) * lband * lturb * lweight * (0.5 + 0.5 * (-p.x / max(r, 1e-4)))
+                  * (0.8 + 0.7 * u.level);
+
+    float photon = exp(-abs(r - rs * 1.04) * 420.0) * (0.6 + 0.5 * u.level);
+    float flareR = rs * 1.1 + (1.0 - u.beat) * 0.45;
+    float3 flare = palette(u.hue + 0.15, u.theme) * exp(-abs(r - flareR) * 70.0) * u.beat * u.beat * 0.5;
+
+    float hole = smoothstep(rs, rs - px * 1.5, r);
+    float front = step(pr.y, 0.0);   // the near half of the disk passes in front of the hole
+    col += lensed + palette(u.hue + 0.4, u.theme) * photon + disk + flare;
+    return col * (1.0 - hole) + disk * front * hole;
+}
+
+// ---------- 6: Silk — soft folds of light, like satin in the dark ----------
+
+float3 silkMode(float2 p, constant Uniforms& u, constant float* s) {
+    float3 col = float3(0.0);
+    float t = u.flow * 0.12;
+    for (int i = 0; i < 3; i++) {
+        float fi = float(i);
+        float ang = 0.9 + fi * 0.55 + 0.15 * sin(u.time * 0.03 + fi);
+        float2 dir = float2(cos(ang), sin(ang));
+        float along = dot(p, float2(-dir.y, dir.x));
+        float sv = spec(s, fract(along * 0.4 + 0.5)) * u.activity;
+        float warp = (0.18 + 0.12 * u.bass) * sin(along * (1.6 + fi * 0.4) + t * (1.0 + fi * 0.3) + fi * 2.0)
+                   + 0.07 * sin(along * 3.7 - t * 1.3 + fi * 5.0) + sv * 0.05;
+        float f = dot(p, dir) + warp - 0.18 + fi * 0.16;
+        // Crisp lit edge on one side, soft satin falloff on the other.
+        float light = exp(-abs(f) * (f < 0.0 ? 70.0 : 7.0 + fi * 1.5));
+        float fade = exp(-along * along * 1.6);
+        col += palette(u.hue + along * 0.35 + fi * 0.22, u.theme) * light * fade
+             * (0.7 + 0.6 * u.level + 0.3 * u.beat) * (1.0 - fi * 0.2);
+    }
+    return col * exp(-dot(p, p) * 0.9);
+}
+
+// ---------- 7: Neon Grid — retro-futuristic floor, sun and a spectrum skyline ----------
+
+float3 gridMode(float2 p, constant Uniforms& u, constant float* s) {
     float3 col = float3(0.0);
     float px = 1.0 / u.resolution.y;
-    float aspect = u.resolution.x / u.resolution.y;
-    float tb = u.flow * 0.9;
-    for (int i = 0; i < 10; i++) {
-        float fi = float(i);
-        float period = 3.0 + hash21(float2(fi, 1.7)) * 3.0;
-        float tt = tb / period + hash21(float2(fi, 9.1));
-        float lt = fract(tt);
-        float2 h = hash22(float2(fi * 7.3, floor(tt)));
-        float2 c = (h - 0.5) * float2(aspect * 0.85, 0.8);
-        float r = length(p - c);
-        float band = spec(s, hash21(float2(fi, 3.3))) * u.activity;
-        float R = lt * (0.25 + 0.25 * h.x + band * 0.15);
-        float fade = (1.0 - lt) * (1.0 - lt) * smoothstep(0.0, 0.05, lt);
-        float3 cc = palette(u.hue + h.y * 0.8, u.theme);
-        for (int k = 0; k < 2; k++) {
-            float rk = R - float(k) * 0.035 * (1.0 + band);
-            if (rk <= 0.0) continue;
-            float d = abs(r - rk);
-            float ring = smoothstep(px * 2.0, 0.0, d) + exp(-d * 120.0) * 0.2;
-            col += cc * ring * fade * (k == 0 ? 1.0 : 0.5) * (0.6 + band);
+    float y = p.y + 0.02;   // height above the horizon
+
+    // Derivatives are taken for every pixel so they stay valid across the horizon.
+    float z = 0.22 / max(-y, 1e-3);
+    float2 g = float2(p.x * z, z + u.flow * 0.9) * 2.0;
+    float2 fw = fwidth(g);
+
+    if (y < 0.0) {
+        float2 gd = abs(fract(g - 0.5) - 0.5) / max(fw, 1e-4);
+        float line = 1.0 - min(min(gd.x, gd.y) / 1.2, 1.0);
+        line *= 1.0 - smoothstep(0.15, 0.5, max(fw.x, fw.y));   // drop lines thinner than a pixel near the horizon
+        float fade = exp(-z * 0.25) * smoothstep(0.0, 0.04, -y);
+        col += palette(u.hue + z * 0.04, u.theme) * line * fade * (0.9 + 0.5 * u.bass + 0.4 * u.beat);
+    } else {
+        // Skyline: low hills in the middle, spectrum-driven peaks towards the sides.
+        float hills = (0.03 + 0.05 * fbm(float2(p.x * 4.0 + u.flow * 0.02, 1.0))) * smoothstep(0.1, 0.6, abs(p.x));
+        float hgt = 0.01 + hills + spec(s, abs(p.x) * 1.1) * 0.12 * u.activity;
+        if (y < hgt) {
+            col += palette(u.hue + 0.6, u.theme) * smoothstep(px * 2.0, 0.0, hgt - y) * 0.8;
+        } else {
+            col += palette(u.hue + 0.6, u.theme) * smoothstep(px * 2.0, 0.0, y - hgt) * 0.8;
+            // Sun with scrolling slits, widening towards the bottom.
+            float2 sp = float2(p.x, y - 0.17);
+            float srad = 0.15 + 0.02 * u.bass;
+            float sdist = length(sp);
+            float disc = smoothstep(srad, srad - px * 2.0, sdist);
+            float gap = clamp(-sp.y * 3.0, 0.0, 0.75);
+            float slits = step(gap, fract(sp.y * 18.0 - u.flow * 0.08));
+            float3 sun = palette(u.hue + 0.3 * (sp.y / srad * 0.5 + 0.5), u.theme);
+            col += sun * disc * slits * (0.45 + 0.3 * u.level + 0.2 * u.beat);
+            col += sun * exp(-max(sdist - srad, 0.0) * 14.0) * (1.0 - disc) * 0.12;
+            // A few stars.
+            float2 q = p * 45.0;
+            float2 h = hash22(floor(q));
+            float st = smoothstep(0.07, 0.0, length(fract(q) - 0.5 - (h - 0.5) * 0.6)) * step(0.88, h.x);
+            col += palette(h.y + u.hue, u.theme) * st * smoothstep(0.05, 0.25, y) * (0.3 + 0.5 * u.treble);
         }
     }
-    // Each beat drops a wide ring from the centre.
-    float d0 = abs(length(p) - (1.0 - u.beat) * 0.9);
-    col += palette(u.hue + 0.5, u.theme) * (smoothstep(px * 2.5, 0.0, d0) + exp(-d0 * 60.0) * 0.3) * u.beat * u.beat;
+    col += palette(u.hue + 0.1, u.theme) * exp(-abs(y) * 140.0) * (0.5 + 0.6 * u.level);
     return col;
 }
 
-// ---------- 6: Orbits — bodies on tilted orbits, one per frequency range ----------
+// ---------- 8: Galaxy — a slowly turning spiral, arms and core lit by the music ----------
 
-float3 orbitsMode(float2 p, constant Uniforms& u, constant float* s) {
-    float3 col = float3(0.0);
-    float px = 1.0 / u.resolution.y;
-    for (int i = 0; i < 6; i++) {
-        float fi = float(i);
-        float dir = (i % 2 == 0) ? 1.0 : -1.0;
-        float band = spec(s, (fi + 0.5) / 6.0) * u.activity;
-        float R = 0.12 + fi * 0.072 + band * 0.025;
-        float tilt = 0.35 + 0.25 * sin(fi * 1.7);
-        // Orbits precess slowly so their lines never sit on the same pixels.
-        float prec = u.time * 0.01 * (fi + 1.0) * dir + fi * 0.9;
-        float cs = cos(prec), sn = sin(prec);
-        float2 q = float2(cs * p.x + sn * p.y, -sn * p.x + cs * p.y);
-        q.y /= tilt;
-        float rq = max(length(q), 1e-4);
-        float g = length(float2(q.x, q.y / tilt)) / rq;
-        float de = abs(rq - R) / g;   // distance to the ellipse in screen space
+float3 galaxyMode(float2 p, constant Uniforms& u, constant float* s) {
+    float c0 = cos(0.5), s0 = sin(0.5);
+    float2 q = float2(c0 * p.x + s0 * p.y, -s0 * p.x + c0 * p.y);
+    q.y /= 0.55;
+    float spin = u.flow * 0.06;
+    q = float2(cos(spin) * q.x - sin(spin) * q.y, sin(spin) * q.x + cos(spin) * q.y);
+    float r = length(q);
+    float a = atan2(q.y, q.x);
 
-        float b = u.flow * (0.9 / (1.0 + fi * 0.45)) * dir + fi * 2.1;
-        float behind = fract((b - atan2(q.y, q.x)) * dir / TAU);
-        float onOrbit = smoothstep(px * 2.5, 0.0, de);
-        float trail = exp(-behind * 6.0) * onOrbit;
-        float orbitLine = smoothstep(px * 1.5, 0.0, de) * 0.14;
+    float arms = pow(0.5 + 0.5 * cos(2.0 * a + log(r + 1e-3) * 4.5), 4.0);
+    float dust = fbm(q * 7.0 + 4.0);
+    float sv = spec(s, clamp(r * 1.8, 0.0, 1.0)) * u.activity;
+    float body = arms * (0.4 + 0.9 * dust) * exp(-r * 3.2) * smoothstep(0.0, 0.05, r);
+    float3 col = palette(u.hue + r * 0.8 + dust * 0.2, u.theme) * body * (1.1 + 0.5 * u.mid + 0.8 * sv);
+    col += palette(u.hue + 0.05, u.theme) * exp(-r * 22.0) * (0.5 + 0.6 * u.bass + 0.4 * u.beat);
 
-        float2 bp = float2(R * cos(b), R * sin(b) * tilt);
-        bp = float2(cs * bp.x - sn * bp.y, sn * bp.x + cs * bp.y);
-        float db = length(p - bp);
-        float size = 0.009 + band * 0.014;
-        float body = smoothstep(size, size * 0.3, db) + exp(-db * 70.0) * 0.25 * (0.4 + band);
-
-        col += palette(u.hue + fi * 0.16, u.theme) * (orbitLine + trail * (0.5 + band) + body * (0.8 + band));
-    }
-    float r = length(p);
-    col += palette(u.hue + 0.5, u.theme) * exp(-r * 60.0) * (0.25 + 0.6 * u.bass);
+    float2 g = q * 60.0;
+    float2 h = hash22(floor(g));
+    float d = length(fract(g) - 0.5 - (h - 0.5) * 0.6);
+    float sparkle = smoothstep(0.08, 0.0, d) * step(0.6, h.x) * (arms * 0.8 + 0.2) * exp(-r * 2.0);
+    col += palette(h.y + u.hue, u.theme) * sparkle * (0.8 + 0.8 * u.treble) * (0.6 + 0.4 * sin(u.time * 3.0 + h.y * 40.0));
     return col;
 }
 
@@ -323,8 +416,10 @@ float3 render(int mode, float2 p, float2 uv, constant Uniforms& u, constant floa
         case 2: return starsMode(p, u, s);
         case 3: return barsMode(p, u, s);
         case 4: return scopeMode(p, u, s);
-        case 5: return ripplesMode(p, u, s);
-        case 6: return orbitsMode(p, u, s);
+        case 5: return blackHoleMode(p, u, s);
+        case 6: return silkMode(p, u, s);
+        case 7: return gridMode(p, u, s);
+        case 8: return galaxyMode(p, u, s);
         default: return haloMode(p, u, s);
     }
 }

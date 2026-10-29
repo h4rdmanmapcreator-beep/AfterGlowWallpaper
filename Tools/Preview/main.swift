@@ -1,5 +1,5 @@
 // Offscreen preview: renders every style (ambient + with fake music) to PNGs.
-//   ./Tools/preview.sh [output-dir]
+//   ./Tools/preview.sh [output-dir]      (THEME=<id> picks a colour theme, see Theme in Settings.swift)
 import AppKit
 import Metal
 
@@ -29,6 +29,7 @@ func render(mode: Int, music: Bool, name: String) {
     u.hue = 0.15
     u.brightness = 0.8 * (music ? 1 : 0.6)
     u.mode = Int32(mode)
+    u.theme = Int32(ProcessInfo.processInfo.environment["THEME"] ?? "0") ?? 0
     if music {
         u.bass = 0.7; u.mid = 0.5; u.treble = 0.35; u.level = 0.75; u.beat = 0.6; u.activity = 1
     }
