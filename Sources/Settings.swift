@@ -1,7 +1,7 @@
 import Foundation
 
 enum Style: Int, CaseIterable {
-    case halo, lines, stars, bars, scope, blackHole, silk, grid, galaxy
+    case halo, lines, stars, bars, scope, blackHole, gradients, grid
 
     var title: String {
         switch self {
@@ -11,25 +11,22 @@ enum Style: Int, CaseIterable {
         case .bars: return "Equalizer"
         case .scope: return "Oscilloscope"
         case .blackHole: return "Black Hole"
-        case .silk: return "Silk"
+        case .gradients: return "Gradients"
         case .grid: return "Neon Grid"
-        case .galaxy: return "Galaxy"
         }
     }
 }
 
 enum Theme: Int, CaseIterable {
     // Raw values are what the shader and saved settings use; declaration order is the menu order.
-    case spectrum = 0, sunset = 4, cyberpunk = 5, synthwave = 6, nature = 7, aurora = 8, ocean = 1, ice = 9, ember = 2, violet = 3
+    case spectrum = 0, sunset = 4, cyberpunk = 5, nature = 7, ocean = 1, ice = 9, ember = 2, violet = 3
 
     var title: String {
         switch self {
         case .spectrum: return "Spectrum (cycling)"
         case .sunset: return "Sunset"
         case .cyberpunk: return "Cyberpunk"
-        case .synthwave: return "Synthwave"
         case .nature: return "Nature"
-        case .aurora: return "Aurora"
         case .ocean: return "Ocean"
         case .ice: return "Ice"
         case .ember: return "Ember"
@@ -51,6 +48,8 @@ final class Settings {
             "fps": 60,
             "autoCycle": true,
             "paused": false,
+            "blackHoleStars": true,
+            "lowFPSWhenSilent": false,
         ])
     }
 
@@ -82,5 +81,15 @@ final class Settings {
     var paused: Bool {
         get { d.bool(forKey: "paused") }
         set { d.set(newValue, forKey: "paused") }
+    }
+    /// Small stars orbiting the black hole, which make the lensing easy to see.
+    var blackHoleStars: Bool {
+        get { d.bool(forKey: "blackHoleStars") }
+        set { d.set(newValue, forKey: "blackHoleStars") }
+    }
+    /// Drop to 30 fps in ambient mode to save power.
+    var lowFPSWhenSilent: Bool {
+        get { d.bool(forKey: "lowFPSWhenSilent") }
+        set { d.set(newValue, forKey: "lowFPSWhenSilent") }
     }
 }

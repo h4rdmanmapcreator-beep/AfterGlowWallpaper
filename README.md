@@ -6,18 +6,18 @@ A live wallpaper for macOS that reacts to whatever your Mac is playing, and keep
 
 - **Reacts to system audio** using Core Audio process taps (macOS 14.2+). No BlackHole or other virtual driver needed, and it works at any volume.
 - **Ambient mode**: when the music stops it fades into a slower, dimmer version of the same style instead of freezing.
-- **Nine styles**:
+- **Eight styles**:
   - Halo: spectrum ring with beat shockwaves
   - Contours: stacked lines pushed up by the music
   - Starfield: multicolored stars on pure black
   - Equalizer: mirrored bars with falling peak caps
   - Oscilloscope: the live waveform as a thin glowing trace
-  - Black Hole: a lensed accretion disk swirling around a pure-black event horizon
-  - Silk: soft glowing folds of light, like satin in the dark
+  - Black Hole: a lensed accretion disk bent over and under a pure-black event horizon, with jets, orbiting stars
+    that smear into arcs as they pass behind it, and spacetime ripples on every hard bass hit
+  - Gradients: soft colour fields drifting across black, each one swelling with its part of the spectrum
   - Neon Grid: retro-futuristic floor, slit sun and a skyline driven by the spectrum
-  - Galaxy: a turning spiral whose arms and core light up with the music
-- **Ten color themes**: Spectrum (cycling), Sunset, Cyberpunk, Synthwave, Nature, Aurora, Ocean, Ice, Ember, Violet.
-- Frame rate up to 144 fps.
+- **Eight color themes**: Spectrum (cycling), Sunset, Cyberpunk, Nature, Ocean, Ice, Ember, Violet.
+- Up to 144 fps, at full rate even when silent (optional 30 fps power saver). Every style renders a 2560×1440 frame in well under 7 ms on an M4.
 - Lives in the menu bar; sits at desktop level under your icons and windows; clicks pass straight through.
 - Works on every connected display.
 
@@ -27,7 +27,7 @@ A live wallpaper for macOS that reacts to whatever your Mac is playing, and keep
 - The whole image drifts slowly, colors cycle, and styles rotate every 8 minutes (optional), so nothing stays on the same pixels.
 - Soft tone-mapping keeps colors saturated and never clips to white.
 - Pause shows pure black, never a frozen frame.
-- Stops rendering when the wallpaper is covered, the display sleeps or the Mac is locked; drops to 30 fps when idle.
+- Stops rendering when the wallpaper is covered, the display sleeps or the Mac is locked.
 
 ## Build
 

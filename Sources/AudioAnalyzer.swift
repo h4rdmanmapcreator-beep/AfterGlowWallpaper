@@ -39,6 +39,11 @@ final class AudioAnalyzer {
     private(set) var treble: Float = 0
     private(set) var level: Float = 0
     private(set) var beat: Float = 0
+    /// Fast envelope of how hard the bass is punching above its recent average (0...1).
+    private(set) var kick: Float = 0
+    /// Increments on every detected bass hit; `beatStrength` is how hard that hit was.
+    private(set) var beatCount = 0
+    private(set) var beatStrength: Float = 0
     private(set) var activity: Float = 0
 
     private var rawBands = [Float](repeating: 0, count: AudioAnalyzer.bandCount)
@@ -173,9 +178,13 @@ final class AudioAnalyzer {
 
         // Beat: bass onset clearly above its recent average.
         let bassNow = mean(0..<8, rawBands)
+        let punch = playing ? min(max((bassNow - bassAverage) * 3.5, 0), 1) : 0
+        kick = max(kick * exp(-dt * 7), punch)
         if playing && bassNow > bassAverage + 0.12 && bassNow > 0.35 && now - lastBeat > 0.28 {
             beat = 1
             lastBeat = now
+            beatCount += 1
+            beatStrength = min(max((bassNow - bassAverage) * 4, 0.35), 1.5)
         }
         bassAverage += (bassNow - bassAverage) * (1 - exp(-dt / 0.6))
         beat *= exp(-dt * 4.5)

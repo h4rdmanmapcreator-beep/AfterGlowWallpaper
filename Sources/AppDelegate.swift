@@ -59,7 +59,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let fps: Int
         if settings.paused {
             fps = 2
-        } else if engine.isIdle {
+        } else if engine.isIdle && settings.lowFPSWhenSilent {
             fps = min(settings.fps, 30)
         } else {
             fps = settings.fps
@@ -133,6 +133,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         cycle.state = settings.autoCycle ? .on : .off
         menu.addItem(cycle)
 
+        let lowFPS = NSMenuItem(title: "Save Power When Silent (30 fps)", action: #selector(toggleLowFPS), keyEquivalent: "")
+        lowFPS.target = self
+        lowFPS.state = settings.lowFPSWhenSilent ? .on : .off
+        menu.addItem(lowFPS)
+
+        let stars = NSMenuItem(title: "Black Hole: Orbiting Stars", action: #selector(toggleBlackHoleStars), keyEquivalent: "")
+        stars.target = self
+        stars.state = settings.blackHoleStars ? .on : .off
+        menu.addItem(stars)
+
         menu.addItem(.separator())
         let pause = NSMenuItem(title: settings.paused ? "Resume" : "Pause (black screen)", action: #selector(togglePause), keyEquivalent: "p")
         pause.target = self
@@ -167,6 +177,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc private func pickSensitivity(_ sender: NSMenuItem) { settings.sensitivity = Float(sender.tag) / 100 }
     @objc private func pickFPS(_ sender: NSMenuItem) { settings.fps = sender.tag; updateRendering() }
     @objc private func toggleCycle() { settings.autoCycle.toggle() }
+    @objc private func toggleLowFPS() { settings.lowFPSWhenSilent.toggle(); updateRendering() }
+    @objc private func toggleBlackHoleStars() { settings.blackHoleStars.toggle() }
     @objc private func togglePause() { settings.paused.toggle(); updateRendering() }
 
     @objc private func toggleLogin() {

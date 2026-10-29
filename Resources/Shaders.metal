@@ -11,8 +11,9 @@ struct Uniforms {
     float treble, level, beat, activity;
     float2 resolution;
     float2 drift;
-    float hue, brightness, modeMix, pad0;
-    int mode, mode2, theme, pad1;
+    float hue, brightness, modeMix, kick;
+    int mode, mode2, theme, flags;   // flags bit 0: black hole orbiting stars
+    float4 rippleAge, rippleAmp;     // last four bass hits: seconds since, strength
 };
 
 struct VOut { float4 pos [[position]]; };
@@ -47,6 +48,16 @@ float vnoise(float2 p) {
     return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
 }
 
+float fbm3(float2 p) {
+    float v = 0.0, a = 0.5;
+    for (int i = 0; i < 3; i++) {
+        v += a * vnoise(p);
+        p = p * 2.03 + float2(17.1, 9.2);
+        a *= 0.5;
+    }
+    return v / 0.875;
+}
+
 float fbm(float2 p) {
     float v = 0.0, a = 0.5;
     for (int i = 0; i < 4; i++) {
@@ -79,9 +90,7 @@ float3 palette(float t, int theme) {
         case 3: return stops4(t, rgb(0x6b1fd1), rgb(0xb03cff), rgb(0x3a1aa8), rgb(0xe05cff)); // violet
         case 4: return stops4(t, rgb(0xff5a1f), rgb(0xe8202a), rgb(0x5a1fb5), rgb(0xff8a2a)); // sunset
         case 5: return stops4(t, rgb(0xff2bd6), rgb(0x7a2bff), rgb(0x00e5ff), rgb(0xf8f000)); // cyberpunk
-        case 6: return stops4(t, rgb(0xff3cac), rgb(0x784ba0), rgb(0x2b86c5), rgb(0xff6ec7)); // synthwave
         case 7: return stops4(t, rgb(0x1f8a3a), rgb(0x7cd13a), rgb(0x0f5c4a), rgb(0xc8e04a)); // nature
-        case 8: return stops4(t, rgb(0x19e68c), rgb(0x12b5c9), rgb(0x7b3dff), rgb(0x2bff9a)); // aurora
         case 9: return stops4(t, rgb(0x3fa9ff), rgb(0x8fd8ff), rgb(0x2a5cff), rgb(0x6ef0ff)); // ice
         default: return 0.5 + 0.5 * cos(TAU * (t + float3(0.0, 0.33, 0.67)));                // spectrum
     }
@@ -140,10 +149,14 @@ float3 linesMode(float2 p, constant Uniforms& u, constant float* s) {
     float px = 1.0 / u.resolution.y;
     float env = exp(-p.x * p.x * 5.0);
     float edgeFade = smoothstep(0.85, 0.55, abs(p.x));
+    if (edgeFade <= 0.0) return col;
     float sv = spec(s, clamp(sqrt(p.x * p.x + 0.002) * 1.15, 0.0, 1.0)) * u.activity;
+    // Farthest any line can be pushed at this x; lines that can't reach this pixel are skipped.
+    float reach = env * (0.05 + sv * 0.16 + 0.022 * (1.0 - u.activity)) + 0.02;
     for (int i = 0; i < N; i++) {
         float fi = float(i) / float(N - 1);
         float y0 = mix(-0.3, 0.3, fi);
+        if (abs(p.y - y0) > reach) continue;
         float n = vnoise(float2(p.x * 3.5 + fi * 7.0, u.flow * 0.22 + fi * 3.0));
         float wave = 0.022 * (1.0 - u.activity) * sin(p.x * 6.0 + u.time * 0.35 + fi * 4.0);
         float disp = env * (n * 0.05 + sv * 0.16 * (0.55 + 0.45 * sin(fi * 11.0 + u.flow * 0.7)) + wave);
@@ -186,7 +199,8 @@ float3 starsMode(float2 p, constant Uniforms& u, constant float* s) {
     return col;
 }
 
-// Buffer 1 layout: [0, 64) bands, [64, 128) peak caps, [128, 384) waveform.
+// Buffer 1 layout: [0, 64) bands, [64, 128) peak caps, [128, 384) waveform,
+// then 28 orbiting stars as (x, y, ±size, hue): position in event-horizon radii, size < 0 when in front of the hole.
 float peakAt(constant float* s, float x) { return spec(s + 64, x); }
 
 float waveAt(constant float* s, float x) {
@@ -259,82 +273,161 @@ float3 scopeMode(float2 p, constant Uniforms& u, constant float* s) {
     return col * (0.8 + 0.5 * u.level);
 }
 
-// ---------- 5: Black Hole — lensed accretion disk around a pure-black event horizon ----------
+// ---------- 5: Black Hole — lensed accretion disk, jets, orbiting stars, spacetime ripples ----------
 
-float3 blackHoleMode(float2 p, constant Uniforms& u, constant float* s) {
+// Gas texture in the disk plane. Inner gas orbits faster (Kepler), which winds the noise into
+// streaks; two phases cross-fade so the winding never grows into aliasing over long runs.
+float diskTexture(float D, float phi, constant Uniforms& u) {
+    float tau = u.flow * 0.08;
+    float tA = fract(tau), tB = fract(tau + 0.5);
+    float wA = 1.0 - abs(2.0 * tA - 1.0);
+    float shear = 1.0 / pow(D, 1.5);
+    float rigid = phi - u.flow * 0.12;
+    float aA = rigid - shear * tA * 7.0;
+    float aB = rigid - shear * tB * 7.0;
+    float nA = fbm3(D * float2(cos(aA), sin(aA)) * 1.4 + floor(tau) * 7.31);
+    float nB = fbm3(D * float2(cos(aB), sin(aB)) * 1.4 + floor(tau + 0.5) * 7.31 + 3.1);
+    return mix(nB, nA, wA);
+}
+
+// Light from the disk at radius D (in event-horizon radii) and azimuth phi (pi/2 = far side).
+float3 diskEmission(float D, float phi, float rin, float rout, constant Uniforms& u, constant float* s) {
+    float band = smoothstep(rin, rin * 1.12, D) * (1.0 - smoothstep(rout * 0.6, rout * 1.15, D));
+    if (band <= 0.0) return float3(0.0);
+    float turb = diskTexture(D, phi, u);
+    float rings = 0.5 + 0.5 * sin(D * 9.0 + turb * 6.0);
+    float tex = mix(turb, rings, 0.45);
+    float heat = 1.0 - smoothstep(rin, rout, D);
+    float doppler = 0.35 + 0.65 * (0.5 - 0.5 * cos(phi));   // the side spinning towards us is brighter
+    float sv = spec(s, clamp((D - rin) / (rout - rin), 0.0, 1.0)) * u.activity;
+    float energy = 0.8 + 0.8 * u.level + 0.7 * sv + 0.9 * u.kick;
+    return palette(u.hue + heat * 0.35 + 0.1 * tex, u.theme)
+         * band * (0.25 + 1.1 * heat * heat) * (0.35 + 0.9 * tex) * doppler * energy;
+}
+
+float3 blackHoleMode(float2 p0, constant Uniforms& u, constant float* s) {
     float px = 1.0 / u.resolution.y;
-    float rs = 0.11 + 0.01 * u.bass;
+    float rs = 0.13 + 0.012 * u.bass + 0.008 * u.kick;
+
+    // Each hard bass hit sends a gravitational wave outwards that warps everything it passes.
+    float r0 = length(p0);
+    float disp = 0.0, crest = 0.0;
+    for (int k = 0; k < 4; k++) {
+        float age = u.rippleAge[k];
+        float amp = u.rippleAmp[k];
+        if (age > 4.0 || amp <= 0.0) continue;
+        float x = r0 - (rs * 1.3 + age * 0.45);
+        float env = amp * exp(-age * 0.9) * exp(-x * x * 90.0);
+        disp += env * 0.022 * sin(x * 70.0);
+        crest += amp * exp(-age * 1.2) * exp(-x * x * 6000.0);
+    }
+    float2 p = p0 - p0 / max(r0, 1e-4) * disp;
     float r = length(p);
+    float rn = r / rs;
+
+    // Frame aligned with the disk; the disk is seen from slightly above.
+    float rot = -0.18 + 0.08 * sin(u.time * 0.05);
+    float cr = cos(rot), sr = sin(rot);
+    float2 pr = float2(cr * p.x + sr * p.y, -sr * p.x + cr * p.y);
+    float th = atan2(pr.y, pr.x);
+    float rin = 1.6, rout = 3.6 + 0.8 * u.level;
+    float hole = smoothstep(rs, rs - px * 1.5, r);
+
+    float3 bg = float3(0.0);   // things behind the hole (hidden inside the horizon)
+    float3 fg = float3(0.0);   // things in front of it
 
     // Background stars, bent around the hole like a gravitational lens.
     float E = rs * 1.9;
     float2 src = p * (1.0 - E * E / max(r * r, 1e-5));
-    float2 sq = src * 38.0;
+    float2 sq = src * 30.0;
     float2 sid = floor(sq);
     float2 sh = hash22(sid);
     float sd = length(fract(sq) - 0.5 - (hash22(sid + 4.1) - 0.5) * 0.6);
-    float star = smoothstep(0.06, 0.0, sd) * step(0.82, sh.x) * smoothstep(rs * 1.3, E * 1.3, r);
-    float3 col = palette(sh.y + u.hue, u.theme) * star * (0.35 + 0.4 * u.treble) * (0.6 + 0.4 * sin(u.time * 2.0 + sh.y * 30.0));
+    float star = smoothstep(0.07, 0.0, sd) * step(0.8, sh.x) * smoothstep(rs * 1.05, rs * 1.5, r);
+    bg += palette(sh.y + u.hue, u.theme) * star * (0.35 + 0.4 * u.treble) * (0.6 + 0.4 * sin(u.time * 2.0 + sh.y * 30.0));
 
-    // Accretion disk seen nearly edge-on; q is the disk plane.
-    float rot = 0.12 * sin(u.time * 0.05);
-    float cr = cos(rot), sr = sin(rot);
-    float2 pr = float2(cr * p.x + sr * p.y, -sr * p.x + cr * p.y);
-    float2 dq = float2(pr.x, pr.y / 0.28);
-    float dr = length(dq);
-    float rin = rs * 1.6, rout = rs * (3.6 + 1.0 * u.level);
-    float band = smoothstep(rin, rin * 1.25, dr) * smoothstep(rout, rin * 1.6, dr);
-    // Inner gas orbits faster (Kepler), which winds the turbulence into streaks.
-    float ang = -u.flow * 0.35 / pow(max(dr / rs, 1.0), 1.5);
-    float ca = cos(ang), sa = sin(ang);
-    float turb = fbm(float2(ca * dq.x - sa * dq.y, sa * dq.x + ca * dq.y) / rs * 1.6 + 3.0);
-    float streaks = 0.3 + 0.7 * pow(turb, 1.5 - 0.6 * u.bass);
-    float doppler = 0.5 + 0.5 * (-dq.x / max(dr, 1e-4));   // the side spinning towards us is brighter
-    float heat = smoothstep(rout, rin, dr);
-    float sv = spec(s, clamp((dr - rin) / (rout - rin), 0.0, 1.0)) * u.activity;
-    float3 disk = palette(u.hue + heat * 0.35, u.theme) * (0.3 + 1.1 * heat * heat)
-                * band * streaks * doppler * (0.9 + 0.8 * u.level + 0.6 * sv + 0.4 * u.beat);
+    // Far side of the disk, bent up over the top of the hole and (thinner) under it.
+    if (rn > 1.0) {
+        float up = smoothstep(-0.35, 0.35, sin(th));   // blend smoothly from the lower to the upper image
+        float D = rin + (rn - 1.08) / mix(0.55, 1.35, up) * (rout - rin);
+        bg += diskEmission(D, abs(th), rin, rout, u, s) * smoothstep(1.02, 1.12, rn) * mix(0.45, 0.95, up);
+    }
 
-    // The far side of the disk, lensed into an arch over and under the hole.
-    float la = -u.flow * 0.5;
-    float2 lp = float2(cos(la) * p.x - sin(la) * p.y, sin(la) * p.x + cos(la) * p.y);
-    float lband = smoothstep(rs * 1.05, rs * 1.2, r) * smoothstep(rs * 2.3, rs * 1.35, r);
-    float lturb = 0.35 + 0.65 * fbm(lp / rs * 2.2);
-    float lweight = 0.45 + 0.55 * abs(p.y) / max(r, 1e-4);
-    float3 lensed = palette(u.hue + 0.3, u.theme) * lband * lturb * lweight * (0.5 + 0.5 * (-p.x / max(r, 1e-4)))
-                  * (0.8 + 0.7 * u.level);
+    // The disk itself, nearly edge-on. Its near half crosses in front of the hole.
+    float2 dq = float2(pr.x, pr.y / 0.2) / rs;
+    float3 disk = diskEmission(length(dq), atan2(dq.y, dq.x), rin, rout, u, s);
+    if (dq.y < 0.0) fg += disk; else bg += disk;
 
-    float photon = exp(-abs(r - rs * 1.04) * 420.0) * (0.6 + 0.5 * u.level);
-    float flareR = rs * 1.1 + (1.0 - u.beat) * 0.45;
-    float3 flare = palette(u.hue + 0.15, u.theme) * exp(-abs(r - flareR) * 70.0) * u.beat * u.beat * 0.5;
+    // Photon ring: thin, shimmering, flaring on kicks.
+    float shimmer = 0.7 + 0.3 * sin(th * 6.0 + u.flow * 1.5);
+    bg += palette(u.hue + 0.45, u.theme) * exp(-abs(r - rs * 1.04) * 380.0) * shimmer * (0.6 + 0.6 * u.level + 0.8 * u.kick);
 
-    float hole = smoothstep(rs, rs - px * 1.5, r);
-    float front = step(pr.y, 0.0);   // the near half of the disk passes in front of the hole
-    col += lensed + palette(u.hue + 0.4, u.theme) * photon + disk + flare;
-    return col * (1.0 - hole) + disk * front * hole;
+    // Relativistic jets along the disk axis, pumped by the bass.
+    float jy = abs(pr.y);
+    float jw = 0.007 + jy * 0.035;
+    float jet = exp(-pr.x * pr.x / (jw * jw)) * smoothstep(rs * 0.9, rs * 1.6, jy) * exp(-jy * 2.2);
+    if (jet > 0.002) {
+        float jflow = 0.55 + 0.45 * vnoise(float2(pr.x * 40.0, jy * 18.0 - u.flow * 2.0));
+        bg += palette(u.hue + 0.6, u.theme) * jet * jflow * (0.08 + 0.25 * u.bass + 0.5 * u.kick);
+    }
+
+    // Stars orbiting the hole. Behind it they are seen through the lens and smear into arcs.
+    // Their orbits are worked out once per frame on the CPU (Engine.orbitStars). Stars rarely overlap,
+    // so only the nearest one in front of and behind the hole is shaded.
+    if ((u.flags & 1) != 0) {
+        constant float4* stars = (constant float4*)(s + 384);
+        float4 nearFar = float4(1.0, 0.0, 0.0, 0.0);    // (distance, size, hue, -)
+        float4 nearFront = float4(1.0, 0.0, 0.0, 0.0);
+        for (int i = 0; i < 28; i++) {
+            float4 st = stars[i];
+            float2 o = st.xy * rs;
+            o = float2(cr * o.x - sr * o.y, sr * o.x + cr * o.y);
+            if (st.z > 0.0) {
+                float d = length(src - o);
+                if (d < nearFar.x) nearFar = float4(d, st.z, st.w, 0.0);
+            } else {
+                float d = length(p - o);
+                if (d < nearFront.x) nearFront = float4(d, -st.z, st.w, 0.0);
+            }
+        }
+        float shine = 0.7 + 0.6 * u.treble;
+        if (nearFar.x < 0.03)
+            bg += palette(u.hue + nearFar.z, u.theme) * shine
+                * (smoothstep(nearFar.y, nearFar.y * 0.2, nearFar.x) + exp(-nearFar.x * 260.0) * 0.25);
+        if (nearFront.x < 0.03)
+            fg += palette(u.hue + nearFront.z, u.theme) * shine
+                * (smoothstep(nearFront.y, nearFront.y * 0.2, nearFront.x) + exp(-nearFront.x * 260.0) * 0.25);
+    }
+
+    bg += palette(u.hue + 0.2, u.theme) * crest * 0.3;
+    return bg * (1.0 - hole) + fg;
 }
 
-// ---------- 6: Silk — soft folds of light, like satin in the dark ----------
+// ---------- 6: Gradients — soft colour fields drifting and breathing with the music ----------
 
-float3 silkMode(float2 p, constant Uniforms& u, constant float* s) {
-    float3 col = float3(0.0);
-    float t = u.flow * 0.12;
-    for (int i = 0; i < 3; i++) {
+float3 gradientsMode(float2 p, constant Uniforms& u, constant float* s) {
+    float t = u.flow * 0.05 + u.time * 0.008;
+    // Only very low frequencies are used anywhere, so every transition stays soft.
+    float2 w = p + (0.1 + 0.08 * u.mid) * float2(sin(p.y * 1.6 + t * 1.3), sin(p.x * 1.3 - t * 1.1));
+    float3 acc = float3(0.0);
+    float total = 0.0;
+    // Five colour fields, one per frequency range: each swells and brightens with its part of the music.
+    for (int i = 0; i < 5; i++) {
         float fi = float(i);
-        float ang = 0.9 + fi * 0.55 + 0.15 * sin(u.time * 0.03 + fi);
-        float2 dir = float2(cos(ang), sin(ang));
-        float along = dot(p, float2(-dir.y, dir.x));
-        float sv = spec(s, fract(along * 0.4 + 0.5)) * u.activity;
-        float warp = (0.18 + 0.12 * u.bass) * sin(along * (1.6 + fi * 0.4) + t * (1.0 + fi * 0.3) + fi * 2.0)
-                   + 0.07 * sin(along * 3.7 - t * 1.3 + fi * 5.0) + sv * 0.05;
-        float f = dot(p, dir) + warp - 0.18 + fi * 0.16;
-        // Crisp lit edge on one side, soft satin falloff on the other.
-        float light = exp(-abs(f) * (f < 0.0 ? 70.0 : 7.0 + fi * 1.5));
-        float fade = exp(-along * along * 1.6);
-        col += palette(u.hue + along * 0.35 + fi * 0.22, u.theme) * light * fade
-             * (0.7 + 0.6 * u.level + 0.3 * u.beat) * (1.0 - fi * 0.2);
+        float2 c = float2(0.6 * sin(t * (0.7 + fi * 0.13) + fi * 1.9), 0.34 * cos(t * (0.55 + fi * 0.17) + fi * 2.7));
+        float band = spec(s, (fi + 0.5) / 5.0) * u.activity;
+        float rad = 0.19 + 0.04 * sin(u.time * 0.21 + fi * 1.3) + 0.07 * band + 0.04 * u.kick;
+        // Stretched, slowly turning fields read as sweeps of colour rather than round blobs.
+        float ang = t * 0.3 + fi * 1.1;
+        float2 d = w - c;
+        d = float2(cos(ang) * d.x + sin(ang) * d.y, -sin(ang) * d.x + cos(ang) * d.y) * float2(0.55, 1.0);
+        float g = exp(-dot(d, d) / (rad * rad)) * (0.6 + 0.8 * band);
+        acc += palette(u.hue + fi * 0.21 + t * 0.1, u.theme) * g;
+        total += g;
     }
-    return col * exp(-dot(p, p) * 0.9);
+    float3 colour = acc / max(total, 1e-4);   // blended like a mesh gradient, never summed towards white
+    float lum = 1.0 - exp(-total * 1.6);
+    return colour * lum * (0.75 + 0.45 * u.level + 0.2 * u.kick) * exp(-dot(p, p) * 0.5);
 }
 
 // ---------- 7: Neon Grid — retro-futuristic floor, sun and a spectrum skyline ----------
@@ -384,32 +477,6 @@ float3 gridMode(float2 p, constant Uniforms& u, constant float* s) {
     return col;
 }
 
-// ---------- 8: Galaxy — a slowly turning spiral, arms and core lit by the music ----------
-
-float3 galaxyMode(float2 p, constant Uniforms& u, constant float* s) {
-    float c0 = cos(0.5), s0 = sin(0.5);
-    float2 q = float2(c0 * p.x + s0 * p.y, -s0 * p.x + c0 * p.y);
-    q.y /= 0.55;
-    float spin = u.flow * 0.06;
-    q = float2(cos(spin) * q.x - sin(spin) * q.y, sin(spin) * q.x + cos(spin) * q.y);
-    float r = length(q);
-    float a = atan2(q.y, q.x);
-
-    float arms = pow(0.5 + 0.5 * cos(2.0 * a + log(r + 1e-3) * 4.5), 4.0);
-    float dust = fbm(q * 7.0 + 4.0);
-    float sv = spec(s, clamp(r * 1.8, 0.0, 1.0)) * u.activity;
-    float body = arms * (0.4 + 0.9 * dust) * exp(-r * 3.2) * smoothstep(0.0, 0.05, r);
-    float3 col = palette(u.hue + r * 0.8 + dust * 0.2, u.theme) * body * (1.1 + 0.5 * u.mid + 0.8 * sv);
-    col += palette(u.hue + 0.05, u.theme) * exp(-r * 22.0) * (0.5 + 0.6 * u.bass + 0.4 * u.beat);
-
-    float2 g = q * 60.0;
-    float2 h = hash22(floor(g));
-    float d = length(fract(g) - 0.5 - (h - 0.5) * 0.6);
-    float sparkle = smoothstep(0.08, 0.0, d) * step(0.6, h.x) * (arms * 0.8 + 0.2) * exp(-r * 2.0);
-    col += palette(h.y + u.hue, u.theme) * sparkle * (0.8 + 0.8 * u.treble) * (0.6 + 0.4 * sin(u.time * 3.0 + h.y * 40.0));
-    return col;
-}
-
 float3 render(int mode, float2 p, float2 uv, constant Uniforms& u, constant float* s) {
     switch (mode) {
         case 1: return linesMode(p, u, s);
@@ -417,9 +484,8 @@ float3 render(int mode, float2 p, float2 uv, constant Uniforms& u, constant floa
         case 3: return barsMode(p, u, s);
         case 4: return scopeMode(p, u, s);
         case 5: return blackHoleMode(p, u, s);
-        case 6: return silkMode(p, u, s);
+        case 6: return gradientsMode(p, u, s);
         case 7: return gridMode(p, u, s);
-        case 8: return galaxyMode(p, u, s);
         default: return haloMode(p, u, s);
     }
 }

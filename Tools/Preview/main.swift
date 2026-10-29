@@ -29,9 +29,13 @@ func render(mode: Int, music: Bool, name: String) {
     u.hue = 0.15
     u.brightness = 0.8 * (music ? 1 : 0.6)
     u.mode = Int32(mode)
+    u.flags = ShaderFlag.blackHoleStars
     u.theme = Int32(ProcessInfo.processInfo.environment["THEME"] ?? "0") ?? 0
     if music {
         u.bass = 0.7; u.mid = 0.5; u.treble = 0.35; u.level = 0.75; u.beat = 0.6; u.activity = 1
+        u.kick = 0.5
+        u.rippleAge = SIMD4(0.35, 1.1, 99, 99)
+        u.rippleAmp = SIMD4(1.2, 0.8, 0, 0)
     }
     let bands = (0..<64).map { i -> Float in
         guard music else { return 0 }
@@ -44,7 +48,7 @@ func render(mode: Int, music: Bool, name: String) {
         let t = Float(j) / 255 * 2 * .pi
         return 0.6 * sin(t * 2) + 0.25 * sin(t * 9 + 1) + 0.1 * sin(t * 31)
     }
-    var data = bands + peaks + wave
+    var data = bands + peaks + wave + Engine.shared.orbitStars()
 
     let pass = MTLRenderPassDescriptor()
     pass.colorAttachments[0].texture = texture

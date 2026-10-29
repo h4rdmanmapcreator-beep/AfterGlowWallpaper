@@ -1,7 +1,7 @@
 import Foundation
 import QuartzCore
 
-/// Must match `Uniforms` in Shaders.metal (80 bytes).
+/// Must match `Uniforms` in Shaders.metal (112 bytes).
 struct Uniforms {
     var time: Float = 0
     var flow: Float = 0
@@ -16,11 +16,18 @@ struct Uniforms {
     var hue: Float = 0
     var brightness: Float = 1
     var modeMix: Float = 0
-    var pad0: Float = 0
+    var kick: Float = 0
     var mode: Int32 = 0
     var mode2: Int32 = 0
     var theme: Int32 = 0
-    var pad1: Int32 = 0
+    var flags: Int32 = 0
+    /// Last four bass hits: seconds since each hit, and how hard it was (spacetime ripples).
+    var rippleAge = SIMD4<Float>(repeating: 99)
+    var rippleAmp = SIMD4<Float>(repeating: 0)
+}
+
+enum ShaderFlag {
+    static let blackHoleStars: Int32 = 1
 }
 
 /// Shared state for every screen: audio analysis, slow drift, style transitions.
@@ -32,13 +39,44 @@ final class Engine {
     private let settings = Settings.shared
 
     private(set) var uniforms = Uniforms()
-    /// Fragment buffer 1: 64 bands, then 64 peak caps, then 256 waveform samples (see Shaders.metal).
-    private(set) var shaderData = [Float](repeating: 0, count: AudioAnalyzer.bandCount * 2 + AudioAnalyzer.waveformCount)
+    /// Fragment buffer 1: 64 bands, 64 peak caps, 256 waveform samples, then the black hole's orbiting stars.
+    private(set) var shaderData = [Float](repeating: 0, count: AudioAnalyzer.bandCount * 2 + AudioAnalyzer.waveformCount + 28 * 4)
 
     private let start = CACurrentMediaTime()
     private var last = CACurrentMediaTime()
     private var flow: Double = 0
     private var hue: Double = 0
+    private var flowSpeed: Float = 0.22
+    private var lastBeatCount = 0
+    private var rippleAge = SIMD4<Float>(repeating: 99)
+    private var rippleAmp = SIMD4<Float>(repeating: 0)
+
+    /// Fixed random orbit for each star around the black hole: radius (event-horizon radii), tilt, phase, size, hue.
+    private static let orbitStarParams: [(radius: Float, tilt: Float, phase: Float, size: Float, hue: Float)] = {
+        var seed: UInt64 = 0x9E3779B97F4A7C15
+        func rand() -> Float {
+            seed = seed &* 6364136223846793005 &+ 1442695040888963407
+            return Float(seed >> 40) / Float(1 << 24)
+        }
+        return (0..<28).map { _ in
+            let a = rand(), b = rand(), c = rand()
+            return (2.2 + 4.3 * a, 0.15 + 0.3 * b, c * 2 * .pi, 0.0025 + 0.002 * b, a * 0.7)
+        }
+    }()
+
+    /// (x, y, ±size, hue) per star; size is negative when the star is on the near side of the hole.
+    func orbitStars() -> [Float] {
+        var out = [Float]()
+        out.reserveCapacity(Self.orbitStarParams.count * 4)
+        for star in Self.orbitStarParams {
+            // Kepler: inner stars go round faster.
+            let angle = Float((Double(star.phase) + flow * 0.5 * pow(Double(star.radius) / 2.2, -1.5))
+                .truncatingRemainder(dividingBy: 2 * .pi))
+            let far = sin(angle) > 0
+            out += [cos(angle) * star.radius, sin(angle) * star.tilt * star.radius, far ? star.size : -star.size, star.hue]
+        }
+        return out
+    }
     private var mode = Settings.shared.style.rawValue
     private var nextMode = Settings.shared.style.rawValue
     private var transition: Float = 0
@@ -57,11 +95,22 @@ final class Engine {
 
         analyzer.sensitivity = settings.sensitivity
         analyzer.update(dt: dt)
-        shaderData = analyzer.bands + analyzer.peaks + analyzer.waveform
         let a = analyzer
 
-        // Motion speeds up with the music, and never fully stops when silent.
-        flow += Double(dt * (0.22 + 1.5 * a.level * a.activity + 0.9 * a.beat * a.activity))
+        // Motion speeds up with the music, and never fully stops when silent. The speed itself is
+        // eased so beats never make the animation lurch.
+        let targetSpeed = 0.22 + 1.5 * a.level * a.activity + 0.9 * a.beat * a.activity
+        flowSpeed += (targetSpeed - flowSpeed) * (1 - exp(-dt / 0.25))
+        flow += Double(dt * flowSpeed)
+
+        shaderData = analyzer.bands + analyzer.peaks + analyzer.waveform + orbitStars()
+
+        rippleAge += dt
+        if a.beatCount != lastBeatCount {
+            lastBeatCount = a.beatCount
+            rippleAge = SIMD4(0, rippleAge.x, rippleAge.y, rippleAge.z)
+            rippleAmp = SIMD4(a.beatStrength, rippleAmp.x, rippleAmp.y, rippleAmp.z)
+        }
         hue += Double(dt * (1.0 / 240 + 0.015 * a.level * a.activity))
         if flow > 20000 { flow -= 20000 }
         if hue > 1 { hue -= 1 }
@@ -98,6 +147,10 @@ final class Engine {
         u.treble = a.treble
         u.level = a.level
         u.beat = a.beat * a.activity
+        u.kick = a.kick * a.activity
+        u.rippleAge = rippleAge
+        u.rippleAmp = rippleAmp * a.activity
+        u.flags = settings.blackHoleStars ? ShaderFlag.blackHoleStars : 0
         u.activity = a.activity
         u.drift = drift
         u.hue = Float(hue)
