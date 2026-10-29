@@ -6,7 +6,14 @@ A live wallpaper for macOS that reacts to whatever your Mac is playing, and keep
 
 - **Reacts to system audio** using Core Audio process taps (macOS 14.2+). No BlackHole or other virtual driver needed, and it works at any volume.
 - **Ambient mode**: when the music stops it fades into a slower, dimmer version of the same style instead of freezing.
-- **Three styles**: Halo (spectrum ring with beat shockwaves), Contours (stacked lines), Starfield (multicolored stars on pure black).
+- **Seven styles**:
+  - Halo: spectrum ring with beat shockwaves
+  - Contours: stacked lines pushed up by the music
+  - Starfield: multicolored stars on pure black
+  - Equalizer: mirrored bars with falling peak caps
+  - Oscilloscope: the live waveform as a thin glowing trace
+  - Ripples: raindrops on black water, plus a ring on every beat
+  - Orbits: planets on tilted orbits, one per frequency range
 - **Four color themes**: Spectrum (cycling), Ocean, Ember, Violet.
 - Lives in the menu bar; sits at desktop level under your icons and windows; clicks pass straight through.
 - Works on every connected display.

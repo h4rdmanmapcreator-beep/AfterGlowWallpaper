@@ -1,13 +1,17 @@
 import Foundation
 
 enum Style: Int, CaseIterable {
-    case halo, lines, stars
+    case halo, lines, stars, bars, scope, ripples, orbits
 
     var title: String {
         switch self {
         case .halo: return "Halo"
         case .lines: return "Contours"
         case .stars: return "Starfield"
+        case .bars: return "Equalizer"
+        case .scope: return "Oscilloscope"
+        case .ripples: return "Ripples"
+        case .orbits: return "Orbits"
         }
     }
 }

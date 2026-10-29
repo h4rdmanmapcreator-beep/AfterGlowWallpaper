@@ -32,7 +32,8 @@ final class Engine {
     private let settings = Settings.shared
 
     private(set) var uniforms = Uniforms()
-    private(set) var spectrum = [Float](repeating: 0, count: AudioAnalyzer.bandCount)
+    /// Fragment buffer 1: 64 bands, then 64 peak caps, then 256 waveform samples (see Shaders.metal).
+    private(set) var shaderData = [Float](repeating: 0, count: AudioAnalyzer.bandCount * 2 + AudioAnalyzer.waveformCount)
 
     private let start = CACurrentMediaTime()
     private var last = CACurrentMediaTime()
@@ -56,7 +57,7 @@ final class Engine {
 
         analyzer.sensitivity = settings.sensitivity
         analyzer.update(dt: dt)
-        spectrum = analyzer.bands
+        shaderData = analyzer.bands + analyzer.peaks + analyzer.waveform
         let a = analyzer
 
         // Motion speeds up with the music, and never fully stops when silent.

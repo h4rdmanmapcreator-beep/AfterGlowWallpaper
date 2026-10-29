@@ -32,11 +32,18 @@ func render(mode: Int, music: Bool, name: String) {
     if music {
         u.bass = 0.7; u.mid = 0.5; u.treble = 0.35; u.level = 0.75; u.beat = 0.6; u.activity = 1
     }
-    var spectrum = (0..<64).map { i -> Float in
+    let bands = (0..<64).map { i -> Float in
         guard music else { return 0 }
         let x = Float(i) / 63
         return max(0, min(1, 0.9 - x * 0.6 + 0.25 * sin(x * 23)))
     }
+    let peaks = bands.map { music ? min($0 + 0.08, 1) : 0 }
+    let wave = (0..<256).map { j -> Float in
+        guard music else { return 0 }
+        let t = Float(j) / 255 * 2 * .pi
+        return 0.6 * sin(t * 2) + 0.25 * sin(t * 9 + 1) + 0.1 * sin(t * 31)
+    }
+    var data = bands + peaks + wave
 
     let pass = MTLRenderPassDescriptor()
     pass.colorAttachments[0].texture = texture
@@ -47,7 +54,7 @@ func render(mode: Int, music: Bool, name: String) {
     let enc = cmd.makeRenderCommandEncoder(descriptor: pass)!
     enc.setRenderPipelineState(pipeline)
     enc.setFragmentBytes(&u, length: MemoryLayout<Uniforms>.stride, index: 0)
-    enc.setFragmentBytes(&spectrum, length: 64 * 4, index: 1)
+    enc.setFragmentBytes(&data, length: data.count * 4, index: 1)
     enc.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 3)
     enc.endEncoding()
     cmd.commit()

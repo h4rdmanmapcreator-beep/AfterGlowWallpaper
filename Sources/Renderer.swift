@@ -45,7 +45,7 @@ final class Renderer: NSObject, MTKViewDelegate {
             u.resolution = SIMD2(Float(view.drawableSize.width), Float(view.drawableSize.height))
             encoder.setRenderPipelineState(Self.pipeline)
             encoder.setFragmentBytes(&u, length: MemoryLayout<Uniforms>.stride, index: 0)
-            engine.spectrum.withUnsafeBytes {
+            engine.shaderData.withUnsafeBytes {
                 encoder.setFragmentBytes($0.baseAddress!, length: $0.count, index: 1)
             }
             encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 3)

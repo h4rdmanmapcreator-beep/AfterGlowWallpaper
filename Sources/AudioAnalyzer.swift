@@ -29,6 +29,11 @@ final class AudioAnalyzer {
 
     // Outputs
     private(set) var bands = [Float](repeating: 0, count: AudioAnalyzer.bandCount)
+    /// Slowly falling maximum of each band (equalizer peak caps).
+    private(set) var peaks = [Float](repeating: 0, count: AudioAnalyzer.bandCount)
+    /// Trigger-aligned, auto-gained waveform in -1...1 (oscilloscope).
+    private(set) var waveform = [Float](repeating: 0, count: AudioAnalyzer.waveformCount)
+    static let waveformCount = 256
     private(set) var bass: Float = 0
     private(set) var mid: Float = 0
     private(set) var treble: Float = 0
@@ -96,6 +101,19 @@ final class AudioAnalyzer {
         let tau: Float = playing ? 0.35 : 2.5
         activity += (target - activity) * (1 - exp(-dt / tau))
 
+        // Start at a rising zero crossing so the oscilloscope trace holds still instead of scrolling.
+        let span = Self.waveformCount * 4
+        var start = 0
+        for i in 0..<(fftSize - span - 1) where frame[i] <= 0 && frame[i + 1] > 0 {
+            start = i
+            break
+        }
+        let waveGain = 1 / max(rmsPeak * 3.5, 1e-3)
+        for j in 0..<Self.waveformCount {
+            let v = playing ? min(max(frame[start + j * 4] * waveGain, -1), 1) : 0
+            waveform[j] += (v - waveform[j]) * 0.6
+        }
+
         vDSP_vmul(frame, 1, window, 1, &frame, 1, vDSP_Length(fftSize))
         real.withUnsafeMutableBufferPointer { rp in
             imag.withUnsafeMutableBufferPointer { ip in
@@ -136,6 +154,7 @@ final class AudioAnalyzer {
             if !playing { v = 0 }
             rawBands[b] = v
             bands[b] += (v - bands[b]) * (v > bands[b] ? attack : release)
+            peaks[b] = max(bands[b], peaks[b] - 0.45 * dt)
         }
 
         func mean(_ range: Range<Int>, _ arr: [Float]) -> Float {
