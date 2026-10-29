@@ -335,6 +335,10 @@ float3 blackHoleMode(float2 p, constant Uniforms& u, constant float* s) {
     // Background stars, bent around the hole like a gravitational lens.
     float E = rs * 1.9;
     float2 src = p * (1.0 - E * E / max(r * r, 1e-5));
+    // Stars keep a fixed brightness: no twinkle, no reaction to the music, and the ambient-mode dimming
+    // (Engine: brightness * (0.6 + 0.4 * activity)) is cancelled out for them.
+    float steady = 1.0 / (0.6 + 0.4 * u.activity);
+
     // Distant stars in three depth layers, all circling the hole (farther = slower), bent by its lens.
     float lensFade = smoothstep(rs * 1.1, rs * 1.8, r);
     for (int k = 0; k < 3; k++) {
@@ -351,8 +355,7 @@ float3 blackHoleMode(float2 p, constant Uniforms& u, constant float* s) {
         float d = length(q - c);
         float size = max(mix(0.05, 0.11, h.y) / (1.0 + fk * 0.3), 1.3 * scale * px);
         float b = smoothstep(size, size * 0.25, d) * (1.0 - 0.25 * fk);
-        float twinkle = 0.6 + 0.4 * sin(u.time * (1.5 + h.y * 3.0) + h.x * 40.0);
-        col += palette(h.y * 0.5 + u.hue + fk * 0.1, u.theme) * b * twinkle * lensFade * (0.5 + 0.4 * u.treble);
+        col += palette(h.y * 0.5 + u.hue + fk * 0.1, u.theme) * b * lensFade * 0.6 * steady;
     }
 
     // The music bends the rings: the spectrum is mirrored around the circle and pushes them outwards.
@@ -404,8 +407,7 @@ float3 blackHoleMode(float2 p, constant Uniforms& u, constant float* s) {
         }
         if (best < 0.03) {
             float core = smoothstep(bestSize, bestSize * 0.2, best) * (1.0 - 0.85 * bestTrail);
-            col += palette(u.hue + bestHue, u.theme) * (core + exp(-best * 260.0) * 0.2 * (1.0 - bestTrail))
-                * (0.7 + 0.6 * u.treble);
+            col += palette(u.hue + bestHue, u.theme) * (core + exp(-best * 260.0) * 0.2 * (1.0 - bestTrail)) * 0.9 * steady;
         }
     }
 
