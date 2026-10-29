@@ -118,29 +118,7 @@ float3 haloMode(float2 p, constant Uniforms& u, constant float* s) {
     return col;
 }
 
-// ---------- 1: Aurora — curtains of light whose height follows the spectrum ----------
-
-float3 auroraMode(float2 p, float2 uv, constant Uniforms& u, constant float* s) {
-    float3 col = float3(0.0);
-    for (int i = 0; i < 4; i++) {
-        float fi = float(i);
-        float x = p.x * (0.8 + fi * 0.25);
-        float h = fbm(float2(x * 1.2 + u.flow * (0.05 + fi * 0.015), fi * 4.1 + u.time * 0.015));
-        float sb = spec(s, abs(fract(uv.x * 0.5 + fi * 0.21) * 2.0 - 1.0)) * u.activity;
-        float y = -0.28 + fi * 0.075 + (h - 0.5) * 0.45 + sb * 0.2 + u.bass * 0.04;
-        float d = p.y - y;
-        float above = max(d, 0.0);
-        float curtain = exp(-above * (7.0 + fi * 1.5)) * smoothstep(-0.003, 0.0, d);
-        float edge = exp(-abs(d) * 140.0);
-        float streak = 0.5 + 0.5 * vnoise(float2(x * 70.0, u.flow * 0.5 + fi * 10.0));
-        float energy = 0.25 + 0.55 * u.level * u.activity + 0.25 * u.beat;
-        float3 c = palette(u.hue + fi * 0.13 + uv.x * 0.15 + above * 0.8, u.theme);
-        col += c * (curtain * streak * 0.45 + edge * 0.5) * energy;
-    }
-    return col;
-}
-
-// ---------- 2: Contours — thin stacked lines displaced by the spectrum ----------
+// ---------- 1: Contours — thin stacked lines displaced by the spectrum ----------
 
 float3 linesMode(float2 p, constant Uniforms& u, constant float* s) {
     float3 col = float3(0.0);
@@ -163,9 +141,10 @@ float3 linesMode(float2 p, constant Uniforms& u, constant float* s) {
     return col * edgeFade * (0.9 + 0.5 * u.level + 0.3 * u.beat);
 }
 
-// ---------- 3: Starfield — flying through stars, speed follows loudness ----------
+// ---------- 2: Starfield — flying through stars, speed follows loudness ----------
 
 float3 starsMode(float2 p, constant Uniforms& u, constant float* s) {
+    // Only the stars are lit: no nebula or haze, the space between them stays pure black.
     float3 col = float3(0.0);
     const int L = 5;
     for (int i = 0; i < L; i++) {
@@ -178,25 +157,25 @@ float3 starsMode(float2 p, constant Uniforms& u, constant float* s) {
         float2 f = fract(q) - 0.5;
         float2 h = hash22(id);
         if (h.y < 0.45) continue;
-        float2 off = (hash22(id + 7.3) - 0.5) * 0.7;
+        float2 off = (hash22(id + 7.3) - 0.5) * 0.6;
         float d = length(f - off);
         float band = spec(s, h.x) * u.activity;
         float size = mix(0.03, 0.07, h.x) * (1.0 + band * 0.8);
-        float star = smoothstep(size, size * 0.15, d) + exp(-d * 18.0) * 0.12 * (0.3 + band);
+        // Glow ends well inside the cell so cells never show as faint squares.
+        float glowR = min(size * 2.5, 0.18);
+        float star = smoothstep(size, size * 0.15, d) + smoothstep(glowR, 0.0, d) * 0.15 * (0.4 + band);
         float twinkle = 0.65 + 0.35 * sin(u.time * (1.5 + h.y * 3.0) + h.x * 40.0);
-        col += palette(h.x * 0.35 + u.hue, u.theme) * star * fade * twinkle * (0.9 + 0.9 * band + 0.4 * u.beat);
+        // Each star gets its own hue from the whole palette.
+        float hue = hash21(id + fi * 13.1 + 3.7);
+        col += palette(hue + u.hue, u.theme) * star * fade * twinkle * (0.9 + 0.9 * band + 0.4 * u.beat);
     }
-    // Faint nebula that swells with the bass.
-    float n = fbm(p * 1.6 + float2(u.time * 0.01, u.flow * 0.02));
-    col += palette(u.hue + 0.6 + n * 0.3, u.theme) * pow(n, 4.0) * (0.12 + 0.35 * u.bass);
     return col;
 }
 
 float3 render(int mode, float2 p, float2 uv, constant Uniforms& u, constant float* s) {
     switch (mode) {
-        case 1: return auroraMode(p, uv, u, s);
-        case 2: return linesMode(p, u, s);
-        case 3: return starsMode(p, u, s);
+        case 1: return linesMode(p, u, s);
+        case 2: return starsMode(p, u, s);
         default: return haloMode(p, u, s);
     }
 }

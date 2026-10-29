@@ -1,12 +1,11 @@
 import Foundation
 
 enum Style: Int, CaseIterable {
-    case halo, aurora, lines, stars
+    case halo, lines, stars
 
     var title: String {
         switch self {
         case .halo: return "Halo"
-        case .aurora: return "Aurora"
         case .lines: return "Contours"
         case .stars: return "Starfield"
         }
