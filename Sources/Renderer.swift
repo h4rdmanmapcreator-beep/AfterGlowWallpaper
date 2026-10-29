@@ -4,7 +4,8 @@ import MetalKit
 final class Renderer: NSObject, MTKViewDelegate {
     static var device: MTLDevice!
     static var queue: MTLCommandQueue!
-    static var pipeline: MTLRenderPipelineState!
+    static var pipelines: [MTLRenderPipelineState] = []
+    static var fadePipelines: [MTLRenderPipelineState] = []
 
     /// Shaders are compiled from source at launch, so no Xcode / Metal toolchain is needed to build.
     static func setUp() throws {
@@ -18,14 +19,49 @@ final class Renderer: NSObject, MTKViewDelegate {
         let options = MTLCompileOptions()
         if #available(macOS 15.0, *) { options.mathMode = .fast }
         let library = try device.makeLibrary(source: source, options: options)
-
-        let desc = MTLRenderPipelineDescriptor()
-        desc.vertexFunction = library.makeFunction(name: "vmain")
-        desc.fragmentFunction = library.makeFunction(name: "fmain")
-        desc.colorAttachments[0].pixelFormat = .bgra8Unorm
-        pipeline = try device.makeRenderPipelineState(descriptor: desc)
+        try makePipelines(device: device, library: library, pixelFormat: .bgra8Unorm)
         queue = device.makeCommandQueue()
         Self.device = device
+    }
+
+    /// One pipeline per style, specialised with the STYLE function constant, plus a blended twin used to
+    /// cross-fade into the next style.
+    static func makePipelines(device: MTLDevice, library: MTLLibrary, pixelFormat: MTLPixelFormat) throws {
+        let vertex = library.makeFunction(name: "vmain")
+        pipelines = []
+        fadePipelines = []
+        for style in Style.allCases {
+            let constants = MTLFunctionConstantValues()
+            var value = Int32(style.rawValue)
+            constants.setConstantValue(&value, type: .int, index: 0)
+            let desc = MTLRenderPipelineDescriptor()
+            desc.vertexFunction = vertex
+            desc.fragmentFunction = try library.makeFunction(name: "fmain", constantValues: constants)
+            desc.colorAttachments[0].pixelFormat = pixelFormat
+            pipelines.append(try device.makeRenderPipelineState(descriptor: desc))
+
+            let blend = desc.colorAttachments[0]!
+            blend.isBlendingEnabled = true
+            blend.sourceRGBBlendFactor = .blendAlpha   // the cross-fade amount, set per draw
+            blend.destinationRGBBlendFactor = .oneMinusBlendAlpha
+            blend.sourceAlphaBlendFactor = .one
+            blend.destinationAlphaBlendFactor = .zero
+            fadePipelines.append(try device.makeRenderPipelineState(descriptor: desc))
+        }
+    }
+
+    /// Draws the current style, then the incoming one blended on top while a cross-fade is running.
+    static func encode(_ encoder: MTLRenderCommandEncoder, uniforms: Uniforms, data: [Float]) {
+        var u = uniforms
+        encoder.setFragmentBytes(&u, length: MemoryLayout<Uniforms>.stride, index: 0)
+        data.withUnsafeBytes { encoder.setFragmentBytes($0.baseAddress!, length: $0.count, index: 1) }
+        encoder.setRenderPipelineState(pipelines[Int(u.mode)])
+        encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 3)
+        if u.modeMix > 0 {
+            encoder.setRenderPipelineState(fadePipelines[Int(u.mode2)])
+            encoder.setBlendColor(red: 0, green: 0, blue: 0, alpha: u.modeMix)
+            encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 3)
+        }
     }
 
     private let engine = Engine.shared
@@ -43,12 +79,7 @@ final class Renderer: NSObject, MTKViewDelegate {
             engine.tick()
             var u = engine.uniforms
             u.resolution = SIMD2(Float(view.drawableSize.width), Float(view.drawableSize.height))
-            encoder.setRenderPipelineState(Self.pipeline)
-            encoder.setFragmentBytes(&u, length: MemoryLayout<Uniforms>.stride, index: 0)
-            engine.shaderData.withUnsafeBytes {
-                encoder.setFragmentBytes($0.baseAddress!, length: $0.count, index: 1)
-            }
-            encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 3)
+            Self.encode(encoder, uniforms: u, data: engine.shaderData)
         }
         encoder.endEncoding()
         commands.present(drawable)

@@ -39,14 +39,23 @@ final class AudioAnalyzer {
     private(set) var treble: Float = 0
     private(set) var level: Float = 0
     private(set) var beat: Float = 0
-    /// Fast envelope of how hard the bass is punching above its recent average (0...1).
+    /// Fast envelope of how hard the sound is punching, across all frequencies (0...1).
     private(set) var kick: Float = 0
-    /// Increments on every detected bass hit; `beatStrength` is how hard that hit was.
-    private(set) var beatCount = 0
-    private(set) var beatStrength: Float = 0
+    /// Increments on every punchy onset (drum hit, stab, pluck — any frequency).
+    private(set) var onsetCount = 0
+    /// How hard the latest onset hit, and where it sat: 0 = deep bass ... 1 = treble.
+    private(set) var onsetStrength: Float = 0
+    private(set) var onsetPitch: Float = 0
+    /// True while the latest onset is still being held at (close to) its peak.
+    private(set) var isSustaining = false
     private(set) var activity: Float = 0
 
     private var rawBands = [Float](repeating: 0, count: AudioAnalyzer.bandCount)
+    private var slowBands = [Float](repeating: 0, count: AudioAnalyzer.bandCount)
+    private var fluxAverage: Float = 0
+    private var lastOnset: CFTimeInterval = 0
+    private var sustainRange = 0..<1
+    private var sustainLevel: Float = 0
     private var peakDb: Float = -60
     private var rmsPeak: Float = 1e-4
     private var bassAverage: Float = 0
@@ -178,15 +187,46 @@ final class AudioAnalyzer {
 
         // Beat: bass onset clearly above its recent average.
         let bassNow = mean(0..<8, rawBands)
-        let punch = playing ? min(max((bassNow - bassAverage) * 3.5, 0), 1) : 0
-        kick = max(kick * exp(-dt * 7), punch)
         if playing && bassNow > bassAverage + 0.12 && bassNow > 0.35 && now - lastBeat > 0.28 {
             beat = 1
             lastBeat = now
-            beatCount += 1
-            beatStrength = min(max((bassNow - bassAverage) * 4, 0.35), 1.5)
         }
         bassAverage += (bassNow - bassAverage) * (1 - exp(-dt / 0.6))
         beat *= exp(-dt * 4.5)
+
+        // Onsets across the whole spectrum: how much each band jumps above its own recent level,
+        // weighted towards the upper mids where the ear hears "punch" most. Comparing against a
+        // smoothed copy (not the previous frame) keeps this independent of the frame rate.
+        var flux: Float = 0, weights: Float = 0, centroid: Float = 0
+        let follow = 1 - exp(-dt / 0.12)
+        for b in 0..<Self.bandCount {
+            let x = Float(b) / Float(Self.bandCount - 1)
+            let w = 0.8 + 0.6 * exp(-pow((x - 0.55) / 0.25, 2))
+            let rise = max(rawBands[b] - slowBands[b], 0) * w
+            flux += rise
+            weights += w
+            centroid += rise * x
+            slowBands[b] += (rawBands[b] - slowBands[b]) * follow
+        }
+        centroid = flux > 1e-5 ? centroid / flux : 0
+        flux /= weights
+
+        let punch = playing ? min(max((flux - fluxAverage) * 6, 0), 1) : 0
+        kick = max(kick * exp(-dt * 7), punch)
+        if playing && flux > fluxAverage * 1.6 + 0.04 && flux > 0.08 && now - lastOnset > 0.15 {
+            lastOnset = now
+            onsetCount += 1
+            onsetStrength = min(max((flux - fluxAverage) * 4, 0.3), 1.5)
+            onsetPitch = centroid
+            // Remember where the hit landed so we can tell how long it is held.
+            let center = Int(centroid * Float(Self.bandCount - 1))
+            sustainRange = max(0, center - 6)..<min(Self.bandCount, center + 7)
+            sustainLevel = mean(sustainRange, rawBands)
+            isSustaining = true
+        } else if isSustaining {
+            let held = mean(sustainRange, rawBands)
+            if !playing || held < sustainLevel * 0.7 || held < 0.25 { isSustaining = false }
+        }
+        fluxAverage += (flux - fluxAverage) * (1 - exp(-dt / 0.5))
     }
 }

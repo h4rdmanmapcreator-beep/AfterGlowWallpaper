@@ -1,7 +1,7 @@
 import Foundation
 import QuartzCore
 
-/// Must match `Uniforms` in Shaders.metal (112 bytes).
+/// Must match `Uniforms` in Shaders.metal (80 bytes).
 struct Uniforms {
     var time: Float = 0
     var flow: Float = 0
@@ -21,9 +21,6 @@ struct Uniforms {
     var mode2: Int32 = 0
     var theme: Int32 = 0
     var flags: Int32 = 0
-    /// Last four bass hits: seconds since each hit, and how hard it was (spacetime ripples).
-    var rippleAge = SIMD4<Float>(repeating: 99)
-    var rippleAmp = SIMD4<Float>(repeating: 0)
 }
 
 enum ShaderFlag {
@@ -39,41 +36,74 @@ final class Engine {
     private let settings = Settings.shared
 
     private(set) var uniforms = Uniforms()
-    /// Fragment buffer 1: 64 bands, 64 peak caps, 256 waveform samples, then the black hole's orbiting stars.
-    private(set) var shaderData = [Float](repeating: 0, count: AudioAnalyzer.bandCount * 2 + AudioAnalyzer.waveformCount + 28 * 4)
+    /// Fragment buffer 1: 64 bands, 64 peak caps, 256 waveform samples, the black hole's orbiting stars,
+    /// then its spacetime ripples (layout documented in Shaders.metal).
+    private(set) var shaderData = [Float](repeating: 0, count: AudioAnalyzer.bandCount * 2 + AudioAnalyzer.waveformCount
+                                                         + Engine.orbitStarCount * 4 + Engine.rippleCount * 4)
+    static let orbitStarCount = 28
+    static let rippleCount = 8
 
     private let start = CACurrentMediaTime()
     private var last = CACurrentMediaTime()
     private var flow: Double = 0
     private var hue: Double = 0
     private var flowSpeed: Float = 0.22
-    private var lastBeatCount = 0
-    private var rippleAge = SIMD4<Float>(repeating: 99)
-    private var rippleAmp = SIMD4<Float>(repeating: 0)
+    private var lastOnsetCount = 0
 
-    /// Fixed random orbit for each star around the black hole: radius (event-horizon radii), tilt, phase, size, hue.
-    private static let orbitStarParams: [(radius: Float, tilt: Float, phase: Float, size: Float, hue: Float)] = {
+    /// One spacetime ripple per punchy onset, newest first. `hold` grows for as long as the hit is
+    /// sustained, which makes the shader emit a longer train of waves; `pitch` sets their wavelength.
+    private struct Ripple { var age: Float; var amp: Float; var hold: Float; var pitch: Float }
+    private var ripples: [Ripple] = []
+
+    private func updateRipples(dt: Float) {
+        let a = analyzer
+        for i in ripples.indices { ripples[i].age += dt }
+        if a.onsetCount != lastOnsetCount {
+            lastOnsetCount = a.onsetCount
+            ripples.insert(Ripple(age: 0, amp: a.onsetStrength, hold: 0, pitch: a.onsetPitch), at: 0)
+        } else if a.isSustaining, !ripples.isEmpty {
+            ripples[0].hold = min(ripples[0].hold + dt, 2.5)
+        }
+        ripples = Array(ripples.prefix(Self.rippleCount).filter { $0.age < 6 })
+    }
+
+    /// (age, amp, hold, pitch) per ripple; unused slots have amp 0.
+    func rippleData() -> [Float] {
+        var out = [Float]()
+        out.reserveCapacity(Self.rippleCount * 4)
+        for i in 0..<Self.rippleCount {
+            if i < ripples.count {
+                let r = ripples[i]
+                out += [r.age, r.amp * analyzer.activity, r.hold, r.pitch]
+            } else {
+                out += [99, 0, 0, 0]
+            }
+        }
+        return out
+    }
+
+    /// Fixed random circular orbit for each star around the black hole: radius (event-horizon radii), phase, size, hue.
+    private static let orbitStarParams: [(radius: Float, phase: Float, size: Float, hue: Float)] = {
         var seed: UInt64 = 0x9E3779B97F4A7C15
         func rand() -> Float {
             seed = seed &* 6364136223846793005 &+ 1442695040888963407
             return Float(seed >> 40) / Float(1 << 24)
         }
-        return (0..<28).map { _ in
+        return (0..<orbitStarCount).map { _ in
             let a = rand(), b = rand(), c = rand()
-            return (2.2 + 4.3 * a, 0.15 + 0.3 * b, c * 2 * .pi, 0.0025 + 0.002 * b, a * 0.7)
+            return (1.9 + 2.7 * a, c * 2 * .pi, 0.0025 + 0.002 * b, a * 0.7)
         }
     }()
 
-    /// (x, y, ±size, hue) per star; size is negative when the star is on the near side of the hole.
+    /// (radius, angle, size, hue) per star, orbiting flat in the screen plane.
     func orbitStars() -> [Float] {
         var out = [Float]()
-        out.reserveCapacity(Self.orbitStarParams.count * 4)
+        out.reserveCapacity(Self.orbitStarCount * 4)
         for star in Self.orbitStarParams {
             // Kepler: inner stars go round faster.
-            let angle = Float((Double(star.phase) + flow * 0.5 * pow(Double(star.radius) / 2.2, -1.5))
+            let angle = Float((Double(star.phase) + flow * 0.45 * pow(Double(star.radius) / 1.9, -1.5))
                 .truncatingRemainder(dividingBy: 2 * .pi))
-            let far = sin(angle) > 0
-            out += [cos(angle) * star.radius, sin(angle) * star.tilt * star.radius, far ? star.size : -star.size, star.hue]
+            out += [star.radius, angle, star.size, star.hue]
         }
         return out
     }
@@ -103,14 +133,9 @@ final class Engine {
         flowSpeed += (targetSpeed - flowSpeed) * (1 - exp(-dt / 0.25))
         flow += Double(dt * flowSpeed)
 
-        shaderData = analyzer.bands + analyzer.peaks + analyzer.waveform + orbitStars()
+        updateRipples(dt: dt)
+        shaderData = a.bands + a.peaks + a.waveform + orbitStars() + rippleData()
 
-        rippleAge += dt
-        if a.beatCount != lastBeatCount {
-            lastBeatCount = a.beatCount
-            rippleAge = SIMD4(0, rippleAge.x, rippleAge.y, rippleAge.z)
-            rippleAmp = SIMD4(a.beatStrength, rippleAmp.x, rippleAmp.y, rippleAmp.z)
-        }
         hue += Double(dt * (1.0 / 240 + 0.015 * a.level * a.activity))
         if flow > 20000 { flow -= 20000 }
         if hue > 1 { hue -= 1 }
@@ -148,8 +173,6 @@ final class Engine {
         u.level = a.level
         u.beat = a.beat * a.activity
         u.kick = a.kick * a.activity
-        u.rippleAge = rippleAge
-        u.rippleAmp = rippleAmp * a.activity
         u.flags = settings.blackHoleStars ? ShaderFlag.blackHoleStars : 0
         u.activity = a.activity
         u.drift = drift
