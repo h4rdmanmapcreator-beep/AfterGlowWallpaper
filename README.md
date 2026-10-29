@@ -15,7 +15,7 @@ A live wallpaper for macOS that reacts to whatever your Mac is playing, and keep
   - Black Hole: a huge pure-black horizon wrapped in streaky lensed rings of orbiting gas,
     three sizes (small, medium, or huge and parked on the right edge so only its left side shows),
     stars circling it (only the fastest leave a short trail), a dense rotating starfield bent by its lens, and
-    colourless spacetime waves that warp everything on every standout hit (wider when the hit is held)
+    colourless spacetime waves that warp everything on standout hard bass or treble hits (wider when the hit is held)
   - Gradients: soft colour fields drifting across black, each one swelling with its part of the spectrum
   - Neon Grid: retro-futuristic floor, slit sun and a skyline driven by the spectrum
 - **Eight color themes**: Spectrum (cycling), Sunset, Cyberpunk, Nature, Ocean, Ice, Ember, Violet.

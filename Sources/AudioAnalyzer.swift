@@ -41,19 +41,37 @@ final class AudioAnalyzer {
     private(set) var beat: Float = 0
     /// Fast envelope of how hard the sound is punching, across all frequencies (0...1).
     private(set) var kick: Float = 0
-    /// Increments on every punchy onset (drum hit, stab, pluck — any frequency).
-    private(set) var onsetCount = 0
-    /// How hard the latest onset hit, and where it sat: 0 = deep bass ... 1 = treble.
-    private(set) var onsetStrength: Float = 0
-    private(set) var onsetPitch: Float = 0
-    /// True while the latest onset is still being held at (close to) its peak.
+    /// Increments on every hard hit in the deep bass (kicks, 808s) or the high treble (snare cracks, claps, crashes).
+    /// Mid-range attacks such as vocals, chords and plucks never count.
+    private(set) var hardHitCount = 0
+    /// How hard the latest hit landed (0.3 and up, uncapped so hard hits can still be compared), and where: 0 = bass, 1 = treble.
+    private(set) var hardHitStrength: Float = 0
+    private(set) var hardHitPitch: Float = 0
+    /// True while the latest hit is still being held at (close to) its peak.
     private(set) var isSustaining = false
     private(set) var activity: Float = 0
 
     private var rawBands = [Float](repeating: 0, count: AudioAnalyzer.bandCount)
     private var slowBands = [Float](repeating: 0, count: AudioAnalyzer.bandCount)
     private var fluxAverage: Float = 0
-    private var wasAboveThreshold = false
+    private var rises = [Float](repeating: 0, count: AudioAnalyzer.bandCount)
+
+    /// Watches one frequency range for a sudden, loud jump above its own recent level.
+    private struct HitDetector {
+        let bands: Range<Int>
+        let pitch: Float
+        let minRise: Float
+        let contrast: Float
+        var average: Float = 0
+    }
+    private var hitDetectors = [
+        HitDetector(bands: 0..<15, pitch: 0, minRise: 0.3, contrast: 2.5),    // ~35–150 Hz: kicks, 808s
+        HitDetector(bands: 44..<64, pitch: 1, minRise: 0.3, contrast: 2.5),   // ~2.6–16 kHz: snare cracks, claps, crashes
+    ]
+    private let hitMinLoudness: Float = 0.5
+    private var hitActive = false
+    private var hitFired = false
+    private var hitPeak: (strength: Float, detector: Int) = (0, 0)
     private var sustainRange = 0..<1
     private var sustainLevel: Float = 0
     private var peakDb: Float = -60
@@ -194,38 +212,64 @@ final class AudioAnalyzer {
         bassAverage += (bassNow - bassAverage) * (1 - exp(-dt / 0.6))
         beat *= exp(-dt * 4.5)
 
-        // Onsets across the whole spectrum: how much each band jumps above its own recent level,
+        // Punch across the whole spectrum: how much each band jumps above its own recent level,
         // weighted towards the upper mids where the ear hears "punch" most. Comparing against a
         // smoothed copy (not the previous frame) keeps this independent of the frame rate.
-        var flux: Float = 0, weights: Float = 0, centroid: Float = 0
+        var flux: Float = 0, weights: Float = 0
         let follow = 1 - exp(-dt / 0.12)
         for b in 0..<Self.bandCount {
             let x = Float(b) / Float(Self.bandCount - 1)
             let w = 0.8 + 0.6 * exp(-pow((x - 0.55) / 0.25, 2))
-            let rise = max(rawBands[b] - slowBands[b], 0) * w
+            rises[b] = max(rawBands[b] - slowBands[b], 0)
+            let rise = rises[b] * w
             flux += rise
             weights += w
-            centroid += rise * x
             slowBands[b] += (rawBands[b] - slowBands[b]) * follow
         }
-        centroid = flux > 1e-5 ? centroid / flux : 0
         flux /= weights
 
         let punch = playing ? min(max((flux - fluxAverage) * 6, 0), 1) : 0
         kick = max(kick * exp(-dt * 7), punch)
-        // No time-based cooldown: an onset fires when the flux rises past the threshold and re-arms as soon
-        // as it falls back below, so one hit counts once but back-to-back hits each count.
-        let aboveThreshold = playing && flux > fluxAverage * 1.6 + 0.04 && flux > 0.08
-        let risingEdge = aboveThreshold && !wasAboveThreshold
-        wasAboveThreshold = aboveThreshold
-        if risingEdge {
-            onsetCount += 1
-            onsetStrength = min(max((flux - fluxAverage) * 4, 0.3), 1.5)
-            onsetPitch = centroid
-            // Remember where the hit landed so we can tell how long it is held.
-            let center = Int(centroid * Float(Self.bandCount - 1))
-            sustainRange = max(0, center - 6)..<min(Self.bandCount, center + 7)
-            sustainLevel = mean(sustainRange, rawBands)
+
+        // Hard hits: the bass or treble range jumps well above its own recent average while it is loud.
+        // A hit fires once, at its peak, so its strength does not depend on the frame rate. There is no
+        // time-based cooldown: it re-arms as soon as both ranges fall back, so back-to-back hits each
+        // count, while a kick and a snare landing together count as one.
+        var strongest: (strength: Float, detector: Int)?
+        var holding = false
+        for i in hitDetectors.indices {
+            let d = hitDetectors[i]
+            let rise = mean(d.bands, rises)
+            let threshold = d.average * d.contrast + d.minRise
+            let loud = playing && mean(d.bands, rawBands) > hitMinLoudness
+            // A hit starts above the threshold and lasts until it drops well below it, so a hit that
+            // wobbles around the threshold still counts once.
+            if loud && rise > threshold * (hitActive ? 0.7 : 1) {
+                holding = true
+                let strength = max((rise - d.average) * 4, 0.3)
+                if strength > (strongest?.strength ?? 0) { strongest = (strength, i) }
+            }
+            hitDetectors[i].average += (rise - d.average) * (1 - exp(-dt / 0.5))
+        }
+        var hit: (strength: Float, detector: Int)?
+        if holding, let now = strongest {
+            if !hitActive { hitActive = true; hitFired = false; hitPeak = now }
+            if !hitFired && now.strength < hitPeak.strength {
+                hit = hitPeak
+                hitFired = true
+            }
+            if now.strength > hitPeak.strength { hitPeak = now }
+        } else if hitActive {
+            if !hitFired { hit = hitPeak }
+            hitActive = false
+        }
+        if let hit {
+            let d = hitDetectors[hit.detector]
+            hardHitCount += 1
+            hardHitStrength = hit.strength
+            hardHitPitch = d.pitch
+            sustainRange = d.bands
+            sustainLevel = mean(d.bands, rawBands)
             isSustaining = true
         } else if isSustaining {
             let held = mean(sustainRange, rawBands)

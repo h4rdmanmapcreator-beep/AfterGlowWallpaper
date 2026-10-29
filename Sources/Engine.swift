@@ -55,26 +55,26 @@ final class Engine {
     private var flow: Double = 0
     private var hue: Double = 0
     private var flowSpeed: Float = 0.22
-    private var lastOnsetCount = 0
+    private var lastHitCount = 0
 
-    /// One big spacetime wave per standout hit, newest first. `hold` grows while the hit is sustained,
+    /// One big spacetime wave per standout hard bass or treble hit, newest first. `hold` grows while the hit is sustained,
     /// which makes that wave wider and stronger; `pitch` (0 bass ... 1 treble) sets how broad it is.
     private struct Ripple { var age: Float; var amp: Float; var hold: Float; var pitch: Float }
     private var ripples: [Ripple] = []
-    private var onsetAverage: Float = 0.5
+    private var hitAverage: Float = 0.5
     private var rippleHeld = false
 
     private func updateRipples(dt: Float) {
         let a = analyzer
         for i in ripples.indices { ripples[i].age += dt }
-        if a.onsetCount != lastOnsetCount {
-            lastOnsetCount = a.onsetCount
+        if a.hardHitCount != lastHitCount {
+            lastHitCount = a.hardHitCount
             // Only hits that stand out from the recent ones count.
-            let standout = a.onsetStrength > max(0.7, onsetAverage * 1.25)
-            onsetAverage += (a.onsetStrength - onsetAverage) * 0.15
+            let standout = a.hardHitStrength > max(0.7, hitAverage * 1.25)
+            hitAverage += (a.hardHitStrength - hitAverage) * 0.15
             rippleHeld = standout
             if rippleHeld {
-                ripples.insert(Ripple(age: 0, amp: a.onsetStrength, hold: 0, pitch: a.onsetPitch), at: 0)
+                ripples.insert(Ripple(age: 0, amp: min(a.hardHitStrength, 1.5), hold: 0, pitch: a.hardHitPitch), at: 0)
             }
         } else if rippleHeld && a.isSustaining && !ripples.isEmpty {
             ripples[0].hold = min(ripples[0].hold + dt, 1.0)
