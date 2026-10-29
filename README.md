@@ -13,6 +13,7 @@ A live wallpaper for macOS that reacts to whatever your Mac is playing, and keep
   - Equalizer: mirrored bars with falling peak caps
   - Oscilloscope: the live waveform as a thin glowing trace
   - Black Hole: a huge pure-black horizon wrapped in streaky lensed rings of orbiting gas,
+    three sizes (small, medium, or huge and parked on the right edge so only its left side shows),
     stars circling with short trails, and spacetime ripples on every punchy hit — a single ring for a short hit,
     a long wave train for a held one, long deep waves for bass and tight ones for highs
   - Gradients: soft colour fields drifting across black, each one swelling with its part of the spectrum

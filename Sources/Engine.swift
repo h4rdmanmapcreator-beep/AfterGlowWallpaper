@@ -23,8 +23,10 @@ struct Uniforms {
     var flags: Int32 = 0
 }
 
+/// Bit layout of `Uniforms.flags`, read by the Black Hole shader.
 enum ShaderFlag {
     static let blackHoleStars: Int32 = 1
+    static func blackHoleSize(_ size: BlackHoleSize) -> Int32 { Int32(size.rawValue) << 1 }
 }
 
 /// Shared state for every screen: audio analysis, slow drift, style transitions.
@@ -173,7 +175,7 @@ final class Engine {
         u.level = a.level
         u.beat = a.beat * a.activity
         u.kick = a.kick * a.activity
-        u.flags = settings.blackHoleStars ? ShaderFlag.blackHoleStars : 0
+        u.flags = (settings.blackHoleStars ? ShaderFlag.blackHoleStars : 0) | ShaderFlag.blackHoleSize(settings.blackHoleSize)
         u.activity = a.activity
         u.drift = drift
         u.hue = Float(hue)

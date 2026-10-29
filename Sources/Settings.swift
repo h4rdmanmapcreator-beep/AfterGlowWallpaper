@@ -17,6 +17,18 @@ enum Style: Int, CaseIterable {
     }
 }
 
+enum BlackHoleSize: Int, CaseIterable {
+    case small, medium, huge
+
+    var title: String {
+        switch self {
+        case .small: return "Small"
+        case .medium: return "Medium"
+        case .huge: return "Huge (off to the side)"
+        }
+    }
+}
+
 enum Theme: Int, CaseIterable {
     // Raw values are what the shader and saved settings use; declaration order is the menu order.
     case spectrum = 0, sunset = 4, cyberpunk = 5, nature = 7, ocean = 1, ice = 9, ember = 2, violet = 3
@@ -49,6 +61,7 @@ final class Settings {
             "autoCycle": true,
             "paused": false,
             "blackHoleStars": true,
+            "blackHoleSize": BlackHoleSize.medium.rawValue,
             "lowFPSWhenSilent": false,
         ])
     }
@@ -86,6 +99,10 @@ final class Settings {
     var blackHoleStars: Bool {
         get { d.bool(forKey: "blackHoleStars") }
         set { d.set(newValue, forKey: "blackHoleStars") }
+    }
+    var blackHoleSize: BlackHoleSize {
+        get { BlackHoleSize(rawValue: d.integer(forKey: "blackHoleSize")) ?? .medium }
+        set { d.set(newValue.rawValue, forKey: "blackHoleSize") }
     }
     /// Drop to 30 fps in ambient mode to save power.
     var lowFPSWhenSilent: Bool {

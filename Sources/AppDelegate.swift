@@ -142,6 +142,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         stars.target = self
         stars.state = settings.blackHoleStars ? .on : .off
         menu.addItem(stars)
+        menu.addItem(submenu("Black Hole: Size", BlackHoleSize.allCases.map { ($0.title, $0 == settings.blackHoleSize, $0.rawValue) },
+                             #selector(pickBlackHoleSize)))
 
         menu.addItem(.separator())
         let pause = NSMenuItem(title: settings.paused ? "Resume" : "Pause (black screen)", action: #selector(togglePause), keyEquivalent: "p")
@@ -179,6 +181,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc private func toggleCycle() { settings.autoCycle.toggle() }
     @objc private func toggleLowFPS() { settings.lowFPSWhenSilent.toggle(); updateRendering() }
     @objc private func toggleBlackHoleStars() { settings.blackHoleStars.toggle() }
+    @objc private func pickBlackHoleSize(_ sender: NSMenuItem) { settings.blackHoleSize = BlackHoleSize(rawValue: sender.tag) ?? .medium }
     @objc private func togglePause() { settings.paused.toggle(); updateRendering() }
 
     @objc private func toggleLogin() {

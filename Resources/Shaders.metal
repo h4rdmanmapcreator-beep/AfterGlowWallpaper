@@ -12,7 +12,7 @@ struct Uniforms {
     float2 resolution;
     float2 drift;
     float hue, brightness, modeMix, kick;
-    int mode, mode2, theme, flags;   // flags bit 0: black hole orbiting stars
+    int mode, mode2, theme, flags;   // flags bit 0: black hole orbiting stars, bits 1-2: black hole size
 };
 
 struct VOut { float4 pos [[position]]; };
@@ -291,9 +291,16 @@ float ringStreaks(float th01, float rad, float P, float RF, float speed, float s
 
 float gauss(float x, float c, float w) { float d = (x - c) / w; return exp(-d * d); }
 
-float3 blackHoleMode(float2 p0, constant Uniforms& u, constant float* s) {
+float3 blackHoleMode(float2 p, constant Uniforms& u, constant float* s) {
     float px = 1.0 / u.resolution.y;
-    float rs = 0.4 + 0.03 * u.bass + 0.02 * u.kick;
+    // Size setting: small and medium sit in the middle; huge is parked on the right edge so only
+    // its left side shows, to make it feel massive.
+    int size = (u.flags >> 1) & 3;
+    float aspect = u.resolution.x / u.resolution.y;
+    float rsBase = size == 0 ? 0.2 : (size == 1 ? 0.4 : 0.85);
+    float starScale = size == 0 ? 1.6 : (size == 1 ? 1.0 : 0.85);
+    float2 p0 = p - (size == 2 ? float2(0.5 * aspect, 0.0) : float2(0.0));
+    float rs = rsBase * (1.0 + 0.075 * u.bass + 0.05 * u.kick);
 
     // Spacetime ripples. Every punchy onset (any frequency) emits waves from the horizon for as long
     // as it is held: a short hit sends a single ring, a sustained one a long train. Low hits make long,
@@ -314,7 +321,7 @@ float3 blackHoleMode(float2 p0, constant Uniforms& u, constant float* s) {
         disp += a * w * lam * 0.16;
         crest += a * pow(max(w, 0.0), 6.0);
     }
-    float2 p = p0 - p0 / max(r0, 1e-4) * disp;
+    p = p0 - p0 / max(r0, 1e-4) * disp;
     float r = length(p);
 
     float rot = 0.05 * sin(u.time * 0.05);
@@ -339,7 +346,7 @@ float3 blackHoleMode(float2 p0, constant Uniforms& u, constant float* s) {
 
     // The music bends the rings: the spectrum is mirrored around the circle and pushes them outwards.
     float sv = spec(s, abs(fract(th01 + u.flow * 0.01) * 2.0 - 1.0)) * u.activity;
-    float rw = rn - sv * 0.08;
+    float rw = rn - sv * 0.08 * min(1.0, 0.4 / rsBase);   // same on-screen bulge whatever the size
     float energy = 0.75 + 0.8 * u.level + 0.9 * u.kick;
 
     // Lensed image of the disk: streaky rings hugging the horizon, brightest above and below it.
@@ -375,13 +382,14 @@ float3 blackHoleMode(float2 p0, constant Uniforms& u, constant float* s) {
         float trailLen = 0.25 + 0.4 * u.kick;
         for (int i = 0; i < 28; i++) {
             float4 st = stars[i];
-            if (abs(rn - st.x) * rs > best) continue;   // this orbit can't beat the nearest star so far
+            float R = st.x * starScale;
+            if (abs(rn - R) * rs > best) continue;   // this orbit can't beat the nearest star so far
             float dth = th - st.y;
             dth -= TAU * floor((dth + M_PI_F) / TAU);
-            float along = dth * st.x;   // arc length ahead (+) or behind (-) the star, in horizon radii
+            float along = dth * R;   // arc length ahead (+) or behind (-) the star, in horizon radii
             float behind = clamp(-along / trailLen, 0.0, 1.0);
             float off = along > 0.0 ? along : max(-along - trailLen, 0.0);
-            float d = length(float2(rn - st.x, off)) * rs;
+            float d = length(float2(rn - R, off)) * rs;
             if (d < best) { best = d; bestSize = st.z; bestHue = st.w; bestTrail = behind; }
         }
         if (best < 0.03) {

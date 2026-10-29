@@ -25,7 +25,9 @@ func render(mode: Int, music: Bool, name: String) {
     u.hue = 0.15
     u.brightness = 0.8 * (music ? 1 : 0.6)
     u.mode = Int32(mode)
-    u.flags = ShaderFlag.blackHoleStars
+    // BH_SIZE=0/1/2 picks the black hole size (small / medium / huge).
+    let size = BlackHoleSize(rawValue: Int(ProcessInfo.processInfo.environment["BH_SIZE"] ?? "1") ?? 1) ?? .medium
+    u.flags = ShaderFlag.blackHoleStars | ShaderFlag.blackHoleSize(size)
     u.theme = Int32(ProcessInfo.processInfo.environment["THEME"] ?? "0") ?? 0
     if music {
         u.bass = 0.7; u.mid = 0.5; u.treble = 0.35; u.level = 0.75; u.beat = 0.6; u.activity = 1
