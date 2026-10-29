@@ -20,6 +20,7 @@ func render(mode: Int, music: Bool, name: String) {
     var u = Uniforms()
     u.time = 37
     u.flow = 21
+    u.flowSpeed = music ? 1.8 : 0.22
     u.resolution = SIMD2(Float(w), Float(h))
     u.drift = SIMD2(0.01, -0.005)
     u.hue = 0.15

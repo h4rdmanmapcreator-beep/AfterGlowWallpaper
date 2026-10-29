@@ -1,7 +1,7 @@
 import Foundation
 import QuartzCore
 
-/// Must match `Uniforms` in Shaders.metal (80 bytes).
+/// Must match `Uniforms` in Shaders.metal (96 bytes).
 struct Uniforms {
     var time: Float = 0
     var flow: Float = 0
@@ -21,6 +21,11 @@ struct Uniforms {
     var mode2: Int32 = 0
     var theme: Int32 = 0
     var flags: Int32 = 0
+    /// Current speed of `flow` per second, for motion trails.
+    var flowSpeed: Float = 0
+    var pad0: Float = 0
+    var pad1: Float = 0
+    var pad2: Float = 0
 }
 
 /// Bit layout of `Uniforms.flags`, read by the Black Hole shader.
@@ -52,19 +57,33 @@ final class Engine {
     private var flowSpeed: Float = 0.22
     private var lastOnsetCount = 0
 
-    /// One spacetime ripple per punchy onset, newest first. `hold` grows for as long as the hit is
-    /// sustained, which makes the shader emit a longer train of waves; `pitch` sets their wavelength.
+    /// One big spacetime wave per standout hit, newest first. `hold` grows while the hit is sustained,
+    /// which makes that wave wider and stronger; `pitch` (0 bass ... 1 treble) sets how broad it is.
     private struct Ripple { var age: Float; var amp: Float; var hold: Float; var pitch: Float }
     private var ripples: [Ripple] = []
+    private var lastRipple: CFTimeInterval = -10
+    private var onsetAverage: Float = 0.5
+    private var rippleHeld = false
+    /// Minimum gap between waves, so they stay big one-off events rather than following every beat.
+    static let rippleCooldown: CFTimeInterval = 1.6
 
-    private func updateRipples(dt: Float) {
+    private func updateRipples(dt: Float, now: CFTimeInterval) {
         let a = analyzer
         for i in ripples.indices { ripples[i].age += dt }
         if a.onsetCount != lastOnsetCount {
             lastOnsetCount = a.onsetCount
-            ripples.insert(Ripple(age: 0, amp: a.onsetStrength, hold: 0, pitch: a.onsetPitch), at: 0)
-        } else if a.isSustaining, !ripples.isEmpty {
-            ripples[0].hold = min(ripples[0].hold + dt, 2.5)
+            // Only hits that stand out from the recent ones count.
+            let standout = a.onsetStrength > max(0.7, onsetAverage * 1.25)
+            onsetAverage += (a.onsetStrength - onsetAverage) * 0.15
+            rippleHeld = standout && now - lastRipple > Self.rippleCooldown
+            if rippleHeld {
+                lastRipple = now
+                ripples.insert(Ripple(age: 0, amp: a.onsetStrength, hold: 0, pitch: a.onsetPitch), at: 0)
+            }
+        } else if rippleHeld && a.isSustaining && !ripples.isEmpty {
+            ripples[0].hold = min(ripples[0].hold + dt, 1.0)
+        } else {
+            rippleHeld = false
         }
         ripples = Array(ripples.prefix(Self.rippleCount).filter { $0.age < 6 })
     }
@@ -135,7 +154,7 @@ final class Engine {
         flowSpeed += (targetSpeed - flowSpeed) * (1 - exp(-dt / 0.25))
         flow += Double(dt * flowSpeed)
 
-        updateRipples(dt: dt)
+        updateRipples(dt: dt, now: now)
         shaderData = a.bands + a.peaks + a.waveform + orbitStars() + rippleData()
 
         hue += Double(dt * (1.0 / 240 + 0.015 * a.level * a.activity))
@@ -169,6 +188,7 @@ final class Engine {
         var u = Uniforms()
         u.time = Float(t.truncatingRemainder(dividingBy: 20000))
         u.flow = Float(flow)
+        u.flowSpeed = flowSpeed
         u.bass = a.bass
         u.mid = a.mid
         u.treble = a.treble

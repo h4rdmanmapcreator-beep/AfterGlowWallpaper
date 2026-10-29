@@ -13,6 +13,7 @@ struct Uniforms {
     float2 drift;
     float hue, brightness, modeMix, kick;
     int mode, mode2, theme, flags;   // flags bit 0: black hole orbiting stars, bits 1-2: black hole size
+    float flowSpeed, pad0, pad1, pad2;   // flowSpeed: how fast `flow` advances per second
 };
 
 struct VOut { float4 pos [[position]]; };
@@ -302,24 +303,21 @@ float3 blackHoleMode(float2 p, constant Uniforms& u, constant float* s) {
     float2 p0 = p - (size == 2 ? float2(0.5 * aspect, 0.0) : float2(0.0));
     float rs = rsBase * (1.0 + 0.075 * u.bass + 0.05 * u.kick);
 
-    // Spacetime ripples. Every punchy onset (any frequency) emits waves from the horizon for as long
-    // as it is held: a short hit sends a single ring, a sustained one a long train. Low hits make long,
-    // deep waves; high hits make short, tight ones.
+    // Spacetime ripples: each standout hit (any frequency, at most one every ~1.6 s) sends a single big
+    // wave out of the horizon. It has no colour of its own; you only see it by how it bends everything.
+    // Held hits make it wider and stronger; bass makes it broader than highs.
     constant float4* ripples = (constant float4*)(s + 496);
     float r0 = length(p0);
-    float disp = 0.0, crest = 0.0;
+    float disp = 0.0;
     for (int k = 0; k < 8; k++) {
         float4 rp = ripples[k];   // age, amp, hold, pitch
         if (rp.y <= 0.0) continue;
-        float lam = mix(0.11, 0.025, rp.w);
-        float front = rs * 1.05 + rp.x * 0.5;
-        float tail = rs * 1.05 + max(rp.x - rp.z, 0.0) * 0.5 - lam;
-        if (r0 > front + lam || r0 < tail - lam) continue;
-        float env = smoothstep(front + lam * 0.5, front - lam * 0.5, r0) * smoothstep(tail - lam * 0.5, tail + lam * 0.5, r0);
-        float a = rp.y * (1.0 + 0.6 * min(rp.z, 1.5)) * exp(-rp.x * 0.7) * env;
-        float w = sin((r0 - front) / lam * TAU);
-        disp += a * w * lam * 0.16;
-        crest += a * pow(max(w, 0.0), 6.0);
+        float held = min(rp.z, 1.0);
+        float width = mix(0.12, 0.05, rp.w) * (1.0 + 0.8 * held);
+        float x = (r0 - (rs * 1.05 + rp.x * 0.55)) / width;
+        if (abs(x) > 3.0) continue;
+        float a = rp.y * (1.0 + 0.8 * held) * exp(-rp.x * 0.6) * smoothstep(0.0, 0.15, rp.x);
+        disp += a * x * exp(-x * x) * width * 0.3;   // one push-pull bulge
     }
     p = p0 - p0 / max(r0, 1e-4) * disp;
     float r = length(p);
@@ -337,12 +335,33 @@ float3 blackHoleMode(float2 p, constant Uniforms& u, constant float* s) {
     // Background stars, bent around the hole like a gravitational lens.
     float E = rs * 1.9;
     float2 src = p * (1.0 - E * E / max(r * r, 1e-5));
-    float2 sq = src * 30.0;
-    float2 sid = floor(sq);
-    float2 sh = hash22(sid);
-    float sd = length(fract(sq) - 0.5 - (hash22(sid + 4.1) - 0.5) * 0.6);
-    float star = smoothstep(0.07, 0.0, sd) * step(0.8, sh.x) * smoothstep(rs * 1.1, rs * 1.8, r);
-    col += palette(sh.y + u.hue, u.theme) * star * (0.3 + 0.4 * u.treble) * (0.6 + 0.4 * sin(u.time * 2.0 + sh.y * 30.0));
+    // Distant stars in three depth layers, all circling the hole (farther = slower), bent by its lens.
+    // When they move fast enough they smear into a short trail along their path.
+    float lensFade = smoothstep(rs * 1.1, rs * 1.8, r);
+    for (int k = 0; k < 3; k++) {
+        float fk = float(k);
+        float scale = 40.0 + fk * 32.0;          // cells per screen height; denser layers are farther away
+        float spin = 0.05 / (1.0 + fk * 0.6);    // radians per unit of flow
+        float ang = u.flow * spin;
+        float ca = cos(ang), sa = sin(ang);
+        float2 q = float2(ca * src.x - sa * src.y, sa * src.x + ca * src.y) * scale;
+        float2 id = floor(q);
+        float2 h = hash22(id + fk * 31.1);
+        if (h.x < 0.55) continue;
+        float2 c = id + 0.5 + (hash22(id + 4.1 + fk) - 0.5) * 0.4;   // star centre, kept clear of the cell edge
+        float2 cs = c / scale;                                         // its position around the hole
+        float rad = max(length(cs), 1e-4);
+        float trail = min(spin * u.flowSpeed * rad * 0.3 * scale, 0.35);   // cells travelled in ~0.3 s
+        trail = max(trail - 0.04, 0.0);
+        float2 dir = float2(-cs.y, cs.x) / rad;                       // backwards along its path
+        float2 pa = q - c;
+        float t = clamp(dot(pa, dir) / max(trail, 1e-4), 0.0, 1.0) * step(1e-4, trail);
+        float d = length(pa - dir * trail * t);
+        float size = max(mix(0.05, 0.11, h.y) / (1.0 + fk * 0.3), 1.3 * scale * px);
+        float b = smoothstep(size, size * 0.25, d) * (1.0 - 0.7 * t) * (1.0 - 0.25 * fk);
+        float twinkle = 0.6 + 0.4 * sin(u.time * (1.5 + h.y * 3.0) + h.x * 40.0);
+        col += palette(h.y * 0.5 + u.hue + fk * 0.1, u.theme) * b * twinkle * lensFade * (0.5 + 0.4 * u.treble);
+    }
 
     // The music bends the rings: the spectrum is mirrored around the circle and pushes them outwards.
     float sv = spec(s, abs(fract(th01 + u.flow * 0.01) * 2.0 - 1.0)) * u.activity;
@@ -371,15 +390,11 @@ float3 blackHoleMode(float2 p, constant Uniforms& u, constant float* s) {
     // Soft glow around the horizon.
     col += palette(u.hue + 0.1, u.theme) * exp(-max(rn - 1.0, 0.0) * 3.0) * 0.08 * energy;
 
-    // Ripple crests glow as they travel.
-    col += palette(u.hue + 0.2, u.theme) * crest * 0.3;
-
     // Stars circling the hole in the screen plane, each with a short trail. Their positions are worked
     // out once per frame on the CPU (Engine.orbitStars); only the nearest one is shaded.
     if ((u.flags & 1) != 0) {
         constant float4* stars = (constant float4*)(s + 384);   // radius, angle, size, hue
         float best = 1.0, bestSize = 0.0, bestHue = 0.0, bestTrail = 0.0;
-        float trailLen = 0.25 + 0.4 * u.kick;
         for (int i = 0; i < 28; i++) {
             float4 st = stars[i];
             float R = st.x * starScale;
@@ -387,7 +402,10 @@ float3 blackHoleMode(float2 p, constant Uniforms& u, constant float* s) {
             float dth = th - st.y;
             dth -= TAU * floor((dth + M_PI_F) / TAU);
             float along = dth * R;   // arc length ahead (+) or behind (-) the star, in horizon radii
-            float behind = clamp(-along / trailLen, 0.0, 1.0);
+            // Trail = how far the star travels in ~0.3 s; slow stars get none.
+            float omega = u.flowSpeed * 0.45 * pow(st.x / 1.3, -1.5);
+            float trailLen = max(omega * R * 0.3 - 0.03, 0.0);
+            float behind = clamp(-along / max(trailLen, 1e-4), 0.0, 1.0);
             float off = along > 0.0 ? along : max(-along - trailLen, 0.0);
             float d = length(float2(rn - R, off)) * rs;
             if (d < best) { best = d; bestSize = st.z; bestHue = st.w; bestTrail = behind; }
