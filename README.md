@@ -44,6 +44,26 @@ On first launch macOS asks for **System Audio Recording** permission. Without it
 
 Tip: set your regular macOS wallpaper to plain black so the screen stays dark before Afterglow starts.
 
+## Opening it on another Mac ("can't be opened")
+
+The app is ad-hoc signed, not notarized by Apple. A copy that arrives by download, AirDrop, Telegram or a zip is **quarantined**, and macOS refuses to open it (or says it "can't be opened"). It's safe to allow if you built it yourself or trust the source. Pick one:
+
+**Terminal (works on every macOS version):** move the app to `/Applications`, then
+
+```bash
+xattr -dr com.apple.quarantine /Applications/Afterglow.app
+open /Applications/Afterglow.app
+```
+
+**Without Terminal:**
+
+- macOS 15 and later: try to open the app once, then go to **System Settings → Privacy & Security**, scroll down to the message about Afterglow and click **Open Anyway**.
+- macOS 14: right-click the app, choose **Open**, then **Open** again in the dialog.
+
+Building it on the other Mac with `./build.sh install` also avoids all of this, because files you compile yourself are never quarantined.
+
+If it still won't open, check that the Mac is an Apple silicon one running macOS 14.2 or later (the build is arm64 only), and that you copied the whole `Afterglow.app` folder and not just the file inside it.
+
 ## Preview
 
 Render every style (ambient and with simulated music) to PNGs without touching the desktop:
