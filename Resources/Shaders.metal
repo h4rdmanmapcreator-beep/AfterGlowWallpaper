@@ -351,7 +351,7 @@ float3 blackHoleMode(float2 p, constant Uniforms& u, constant float* s) {
         float2 q = float2(ca * src.x - sa * src.y, sa * src.x + ca * src.y) * scale;
         float2 id = floor(q);
         float2 h = hash22(id + fk * 31.1);
-        if (h.x < 0.775) continue;   // ~22% of cells hold a star
+        if (h.x < 0.8875) continue;   // ~11% of cells hold a star
         float2 c = id + 0.5 + (hash22(id + 4.1 + fk) - 0.5) * 0.4;   // star centre, kept clear of the cell edge
         float d = length(q - c);
         float size = max(mix(0.05, 0.11, h.y) / (1.0 + fk * 0.3), 1.3 * scale * px);
