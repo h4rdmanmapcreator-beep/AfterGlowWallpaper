@@ -33,21 +33,22 @@ A live wallpaper for macOS that reacts to whatever your Mac is playing, and keep
 
 ## Install (one line)
 
-On an Apple silicon Mac running macOS 14.2 or later, paste this into Terminal:
+On an Apple silicon Mac running macOS 14.2 or later, paste this into Terminal. No developer tools are needed:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/h4rdmanmapcreator-beep/AfterGlowWallpaper/main/install.sh | bash
 ```
 
-It downloads the source, builds it on your Mac, installs it to `/Applications` and starts it. Because you build it yourself, macOS never quarantines it. If the Xcode Command Line Tools are missing, it opens their installer and asks you to run the command again afterwards. You can read the script first: [install.sh](install.sh).
+It downloads the latest prebuilt app from the [Releases](https://github.com/h4rdmanmapcreator-beep/AfterGlowWallpaper/releases) page, clears macOS's quarantine flag, installs it to `/Applications` and starts it. You can read the script first: [install.sh](install.sh).
 
-## Build
+## Build from source
 
 Only the Xcode Command Line Tools are needed; shaders are compiled at launch.
 
 ```bash
 ./build.sh            # builds build/Afterglow.app
 ./build.sh install    # builds and copies it to /Applications
+./Tools/package.sh    # builds build/Afterglow.zip, the file attached to a GitHub release
 ```
 
 On first launch macOS asks for **System Audio Recording** permission. Without it, only the ambient animation runs.
@@ -70,7 +71,7 @@ open /Applications/Afterglow.app
 - macOS 15 and later: try to open the app once, then go to **System Settings → Privacy & Security**, scroll down to the message about Afterglow and click **Open Anyway**.
 - macOS 14: right-click the app, choose **Open**, then **Open** again in the dialog.
 
-Building it on the other Mac with `./build.sh install` also avoids all of this, because files you compile yourself are never quarantined.
+Building it on that Mac with `./build.sh install` also avoids all of this, because files you compile yourself are never quarantined.
 
 If it still won't open, check that the Mac is an Apple silicon one running macOS 14.2 or later (the build is arm64 only), and that you copied the whole `Afterglow.app` folder and not just the file inside it.
 
