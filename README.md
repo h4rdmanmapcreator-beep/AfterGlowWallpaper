@@ -31,6 +31,16 @@ A live wallpaper for macOS that reacts to whatever your Mac is playing, and keep
 - Pause shows pure black, never a frozen frame.
 - Stops rendering when the wallpaper is covered, the display sleeps or the Mac is locked.
 
+## Install (one line)
+
+On an Apple silicon Mac running macOS 14.2 or later, paste this into Terminal:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/h4rdmanmapcreator-beep/AfterGlowWallpaper/main/install.sh | bash
+```
+
+It downloads the source, builds it on your Mac, installs it to `/Applications` and starts it. Because you build it yourself, macOS never quarantines it. If the Xcode Command Line Tools are missing, it opens their installer and asks you to run the command again afterwards. You can read the script first: [install.sh](install.sh).
+
 ## Build
 
 Only the Xcode Command Line Tools are needed; shaders are compiled at launch.
